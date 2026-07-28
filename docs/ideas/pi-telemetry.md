@@ -2,9 +2,9 @@
 kind: idea
 title: "pi-telemetry — Local-first observability for Pi workflows"
 slug: pi-telemetry
-status: proposed
+status: ready
 created_at: 2026-07-28T18:17:29Z
-grilled_at:
+grilled_at: 2026-07-28T18:51:56Z
 converted_to:
 ---
 
@@ -34,6 +34,73 @@ capture flags exist but ship disabled.
 that are hard to get out of the OTLP/Grafana path. The local SQL store is
 additionally valuable because the agent itself can query it (`query_telemetry`)
 and answer "what did today cost?" / "which tool fails most?" without a dashboard.
+
+## Decisions (grilling log)
+
+- **[2026-07-28] Relationship to ObservMe → Independent alternative.**
+  pi-telemetry is self-contained and written neutrally. It does **not** assume
+  ObservMe exists or co-runs. "Replaces the OTLP-based
+  `submit_workflow_feedback` pipeline" (§5) means it *offers a local
+  alternative path* — it does **not** suppress or override the OTLP tool. If a
+  user runs both extensions, every standard Pi event gets processed twice; that
+  is the user's call, not something the spec must solve (though a one-line note
+  in the spec is worth adding). Lineage (§4) defines pi-telemetry's **own**
+  env-var contract (`PI_TELEMETRY_*`), mirroring ObservMe's propagation
+  *pattern* as inspiration only — no dependency on ObservMe's integration API.
+- **[2026-07-28] v1 scope → Full catalog as spec.** v1 = all 8 tables
+  (`sessions`, `agent_runs`, `turns`, `llm_requests`, `tool_executions`,
+  `bash_executions`, `session_events`, `feedback`, plus `telemetry_meta`), the
+  `/tm` command surface, and the `query_telemetry` tool. Only lineage is
+  deferred to phase 2. The "streaming metrics = primary motivation" framing
+  explains *why the extension exists*, not *what ships first* — once the
+  write-path infra exists, each extra table is a cheap incremental handler.
+- **[2026-07-28] Concurrency claim → design target, §9 validates.** Keep the
+  synchronous-flush / single-shared-WAL-DB design. Reframe §3's "Measured ~42k
+  commits/s, 0 busy, 100 writers" as the **target** the §9 multi-process soak
+  must reproduce, so the spec doesn't lean on an un-reproducible prior number.
+  The design is sound (SQLite WAL + `busy_timeout=5000` + INSERT-only + batched
+  commits is a well-understood pattern for ~100 low-rate writers). No fallback
+  (per-process DB / async write-behind queue) unless the §9 soak shows busy
+  contention or throughput collapse.
+- **[2026-07-28] `query_telemetry` SQL surface → Presets primary + guarded
+  raw SQL.** Named presets are the agent's primary path. The `sql` param stays
+  as a constrained escape hatch: runs on a **read-only connection**
+  (`DatabaseSync` `{readOnly:true}` + `PRAGMA query_only=ON` — writes and
+  schema changes blocked by construction, no regex guard to bypass), results
+  capped at a row limit with a `LIMIT 500` **injected if the query lacks one**,
+  and a **3s statement timeout** kills runaway queries. Tool description steers
+  the agent to presets first. `/tm sql` (human) uses the same guarded path.
+- **[2026-07-28] Lineage in v1 → Ship the foundation.** v1 ships the env-var
+  reader (reads `PI_TELEMETRY_*` at startup, stamps the `sessions` row) + the
+  bus listener (subscribes to `pi-telemetry:agent.spawned`/`.completed`). No
+  emitter exists yet, so `parent_*` stays NULL in vanilla use — but the
+  contract is published and a power user or future orchestrator can opt in
+  immediately. `/tm tree` + the `agent_tree` preset ship (flat trees until
+  lineage data exists). Phase 2 = the pi-subagents emitter shim only. §9 gains
+  a test that emits a bus event and asserts lineage stamps. Matches SPEC §4.
+- **[2026-07-28] Feedback `source` convention → convention is enough.**
+  Keep `source` self-declared on the bus path and hardcoded `"pi"` on the
+  agent-tool path (§5.2). The trust model (§5.1: all local extensions trusted;
+  `source` self-declared, not verified) already accepts this — enforcing a
+  `source="pi"` reservation would add rejection logic for no security gain.
+  No separate `origin` column; `source` already distinguishes agent-emitted
+  (`pi`) from extension-emitted (plugin name) in practice. **Ordering:** no
+  cross-path ordering guarantee; both insert with `received_unix_ms` and
+  queries order by time. *(Folded recommendation — confirm at finish.)*
+- **[2026-07-28] DB scope → one shared DB, configurable.**
+  `~/.pi/telemetry.db` shared by all Pi processes on the machine is the point —
+  cross-session / cross-project correlation lets the agent answer "what did
+  today cost?" across all work. `dbPath` (§7) is already configurable for users
+  who want per-project or per-profile isolation; no `scope` setting needed in
+  v1. *(Folded recommendation — confirm at finish.)*
+- **[2026-07-28] `submit_feedback` / `submit_workflow_feedback` coexistence
+  → coexist, steer via description.** As an independent alternative,
+  pi-telemetry does not suppress the OTLP `submit_workflow_feedback` tool. If
+  both are registered, the agent sees two feedback tools; pi-telemetry's
+  `submit_feedback` `description` should state it records to the **local**
+  telemetry store (vs the OTLP tool's backend) so the agent chooses
+  intentionally. No `promptGuidelines` hard-steering. *(Folded recommendation
+  — confirm at finish.)*
 
 ## Shape (condensed from SPEC.md)
 
@@ -99,39 +166,21 @@ and answer "what did today cost?" / "which tool fails most?" without a dashboard
 
 ## Open questions
 
-- [ ] **[ROOT] Relationship to ObservMe.** The spec says pi-telemetry
-  "replaces the OTLP-based `submit_workflow_feedback` pipeline" (§5) yet also
-  mirrors ObservMe's privacy posture and integration-API propagation pattern
-  (§4). ObservMe is actively installed. Is pi-telemetry a *replacement* (disable
-  ObservMe), a *complement* (both run), or an *independent alternative* (don't
-  assume either way; each user picks)? This decides the feedback fate, whether
-  to reuse ObservMe's lineage API, and whether double-capture is a concern.
-- [ ] **Primary motivation vs. catalog breadth.** §1.4 names streaming metrics
-  (TTFT/stream duration) as the primary motivation, but the catalog spans 8
-  tables + feedback + lineage + commands + query tool. Is the Phase 1 MVP the
-  full catalog, or a streaming-metrics-first slice (turns + llm_requests +
-  sessions) with the rest behind it?
-- [ ] **`submit_workflow_feedback` replacement mechanics.** "Replaces" how,
-  concretely — register a `submit_feedback` tool that shadows/overrides the
-  OTLP one, or just provide a parallel path and leave the OTLP tool alone?
-  What happens to existing OTLP-log consumers if the OTLP tool is suppressed?
-- [ ] **Lineage deferral.** §4 defers the pi-subagents bus shim to phase 2 and
-  ships v1 with `parent_*` NULL. Is NULL lineage acceptable for v1's value, or
-  is correlation essential to the point of the extension?
-- [ ] **Concurrency-claim provenance.** "Measured 42k commits/s, 0 busy, 100
-  writers" is load-bearing for the synchronous-flush, single-shared-DB design.
-  Was this actually measured on target hardware, or is it an estimate? If the
-  latter, the flush strategy may need a fallback (per-process DB, async queue,
-  etc.).
-- [ ] **Feedback bus vs. tool; `source="pi"` convention.** §5 routes both the
-  bus event and the agent tool into one `feedback` table, reserving
-  `source="pi"` for the tool "by convention, not enforced." Is convention
-  enough, or should the tool path be structurally distinguished? Any ordering
-  guarantee between bus-emitted and tool-emitted feedback within a turn?
-- [ ] **`query_telemetry` raw-SQL surface.** §6.2 offers named presets *and*
-  read-only SELECT with a guard. How exposed is the raw-SQL path to the agent
-  — is it expected to be the common path (needing strong resource limits /
-  injection hardening) or an escape hatch? This sizes the security work.
-- [ ] **DB scope & isolation.** `~/.pi/telemetry.db` is shared by *all* Pi
-  processes on the machine (single-user, cross-project). Is project-scoped or
-  per-profile isolation ever wanted, or is one big correlated DB the point?
+- [x] **[ROOT] Relationship to ObservMe** → Independent alternative (see
+  Decisions). Self-contained; no ObservMe coupling; feedback "replacement" is a
+  parallel local path, not suppression; lineage uses its own env-var contract.
+- [x] **Primary motivation vs. catalog breadth** → Full v1 as spec (see
+  Decisions). Streaming-metrics line explains existence, not ship-order;
+  extra tables are cheap incremental handlers once write-path infra exists.
+- [x] **`submit_workflow_feedback` coexistence** → Coexist, steer via tool
+  description (see Decisions). No suppression; description notes local store.
+- [x] **Lineage deferral** → Ship foundation in v1 (reader + listener,
+  NULL until emitter); emitter shim is phase 2 (see Decisions).
+- [x] **Concurrency-claim provenance** → Treat as design target; §9 soak
+  validates (see Decisions). No fallback unless the soak fails.
+- [x] **Feedback bus vs. tool; `source="pi"` convention** → Convention is
+  enough; no `origin` column; no cross-path ordering guarantee (see Decisions).
+- [x] **`query_telemetry` raw-SQL surface** → Presets primary + guarded raw
+  SQL on a read-only connection, LIMIT 500 clamp, 3s timeout (see Decisions).
+- [x] **DB scope & isolation** → One shared DB is the point;
+  `dbPath` configurable for isolation (see Decisions).
