@@ -47,5 +47,9 @@ duration — the extension's primary motivation.
 - **Key scenarios:** normal streamed request; non-streamed (start→end)
   request; error/abort mid-stream; rate-limited response with
   retry-after.
+- **L2 mock session:** scripted stream with fixed inter-event delays →
+  `ttft_ms`/`stream_ms` within tolerance ranges (real wall clock in
+  L2 — exact values are asserted in L1 with the controllable clock);
+  scripted 429 → `http_status`/`retry_after_ms` recorded.
 - **Edge cases:** zero-duration stream (single update); missing usage
   on `message_end`; provider without cost data (NULL costs).

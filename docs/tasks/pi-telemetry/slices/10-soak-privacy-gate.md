@@ -29,7 +29,7 @@ privacy posture against the finished extension.
   assert zero content strings in any table — lengths + hashes only.
 - **Full-suite gate:** `npm test` and `npm run check` green; the whole
   SPEC §1 catalog verified end-to-end against a realistic scripted
-  session.
+  session driven through the SDK mock-provider harness (L2).
 
 ## Acceptance criteria
 
@@ -48,7 +48,7 @@ privacy posture against the finished extension.
   distinguish target miss from environmental noise (repeat runs,
   report variance); (2) privacy leak (content column accidentally
   populated) → test fails with the offending table/column named.
-- **Key scenarios:** 100-writer soak; privacy run over a scripted
+- **Key scenarios:** 100-writer soak; privacy run over an L2 scripted
   session touching all tables; idempotent-DDL check across concurrent
   first-starts.
 - **Edge cases:** soak on a machine under load (documented as

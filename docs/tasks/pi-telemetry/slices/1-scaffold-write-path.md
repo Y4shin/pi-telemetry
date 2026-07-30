@@ -42,6 +42,17 @@ config, DB connection, schema, and the buffered write path (SPEC §2, §3,
 - Failure handling: any DB error → best-effort `telemetry_meta` row
   (`write_failed`/`busy_retry`), then swallow. Telemetry must never
   break a Pi session.
+- Test harness (`test/helpers/`, two levels per the task doc):
+  - L1: thin typed `ExtensionAPI` stub (`pi.on` registry, `pi.events`,
+    `registerTool`/`registerCommand` capture) firing synthetic events.
+  - L2: SDK mock-session helper — `createAgentSession()` +
+    `SessionManager.inMemory()`, the extension loaded via
+    `extensionFactories` (its real default export), plus a scripted
+    mock provider (`createAssistantMessageEventStream`; deterministic
+    events, exact usage figures) registered through
+    `pi.registerProvider` in a test-helper factory. No API keys.
+- Fill `docs/testing.md`: framework (`node:test`), run commands, mock
+  conventions (L1/L2 split above).
 
 ## Acceptance criteria
 
@@ -52,6 +63,10 @@ config, DB connection, schema, and the buffered write path (SPEC §2, §3,
 - A simulated write failure is swallowed and recorded in
   `telemetry_meta`; the event handler returns normally.
 - `user_version` is set; re-running migrations does not reapply steps.
+- Harness proven: one L1 test (stub-fired event → row) and one L2 test
+  (SDK mock session with the extension loaded → DB created and
+  initialized) pass.
+- `docs/testing.md` is no longer the bare template.
 
 ## Testing strategy
 

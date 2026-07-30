@@ -52,5 +52,9 @@ Handlers for SPEC §1.1–1.3: `sessions`, `agent_runs`, `turns`.
   (2) `ctx.getContextUsage()` throws → column NULL, handler continues.
 - **Key scenarios:** full happy-path session (start → run → turns →
   shutdown); `/name` rename mid-session; fork/resume start reasons.
+- **L2 mock session:** scripted provider turn driven through the SDK
+  harness → `sessions`/`agent_runs`/`turns` rows match the known script
+  (event-shape fidelity against the real pipeline — exact token/cost
+  figures from the script).
 - **Edge cases:** multiple agent runs in one session; turn_index
   sequencing across runs; resume with pre-existing session row.

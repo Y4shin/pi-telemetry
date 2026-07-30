@@ -52,6 +52,10 @@ Handlers for SPEC §1.5–1.6: `tool_executions`, `bash_executions`.
   best-effort.
 - **Key scenarios:** success, tool error, user-cancelled bash,
   truncated output, `!!` (exclude_from_context).
+- **L2 mock session:** scripted `toolcall_end` for a real tool → real
+  execution through pi → `tool_executions` row with actual duration,
+  is_error, args_chars/result_chars/result_hash from the real run.
+  (User-bash `!`/`!!` stays L1 — not prompt-drivable headlessly.)
 - **Edge cases:** empty args/result (chars=0, hash of empty);
   non-JSON-serializable args (chars only); very large results
   (length + hash only, no big allocations).

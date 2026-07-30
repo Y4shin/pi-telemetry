@@ -105,8 +105,21 @@ No existing abstractions to reuse — greenfield repo.
 
 ## Testing strategy (SPEC §9)
 
-- **Unit:** handler → row mapping against in-memory `node:sqlite` with
-  a fake Pi event harness (simulated `turn_start`/`turn_end` etc.).
+Two levels; the harness is built in slice 1 and conventions are
+recorded in `docs/testing.md` during slice 1:
+
+- **L1 unit:** handler → row mapping against in-memory `node:sqlite`
+  with a thin typed `ExtensionAPI` stub firing synthetic events
+  (`turn_start`/`turn_end` etc.). Fast; covers edge cases and failure
+  modes.
+- **L2 mock pi sessions:** real headless sessions via the pi SDK —
+  `createAgentSession()` + `SessionManager.inMemory()`, the extension
+  loaded through `extensionFactories` (its actual default export → real
+  dispatch), and a scripted mock provider implementing the documented
+  streaming API (`createAssistantMessageEventStream`; deterministic
+  timing, exact usage/cost figures, scripted tool calls, simulated
+  429s). No API keys. Used where event-shape fidelity matters (slices
+  2/3/4) and for the slice-10 full-session gate.
 - **Bus:** emit `pi-telemetry:submit-feedback` without listener
   (no-op), with listener (row appears), malformed payload (meta row, no
   throw). Lineage: emit `agent.spawned`/`.completed`, assert stamps.
