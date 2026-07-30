@@ -54,6 +54,18 @@ describe("L2 capture", () => {
     assert.strictEqual(typeof turnRow.output_tokens, "number");
     assert.strictEqual(typeof turnRow.total_tokens, "number");
 
+    const turnId = turnRow.turn_id as string;
+    const llmRow = db.prepare("SELECT * FROM llm_requests WHERE turn_id = ?").get(turnId) as Record<string, unknown> | undefined;
+    assert.ok(llmRow, "llm_requests row expected");
+    assert.strictEqual(llmRow.provider, "pi-telemetry-test");
+    assert.strictEqual(llmRow.model, "test-model");
+    assert.strictEqual(llmRow.session_id, sessionId);
+    assert.strictEqual(llmRow.turn_id, turnRow.turn_id);
+    assert.strictEqual(llmRow.run_id, runId);
+    assert.strictEqual(typeof llmRow.started_unix_ms, "number");
+    assert.strictEqual(typeof llmRow.duration_ms, "number");
+    assert.ok((llmRow.duration_ms as number) >= 0, "duration_ms should be non-negative");
+
     db.close();
     await cleanup();
     delete process.env.PI_TELEMETRY_DB_PATH;
