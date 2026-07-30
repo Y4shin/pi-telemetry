@@ -181,4 +181,78 @@ describe("tool execution capture", () => {
     assert.strictEqual(row.args_json, JSON.stringify({ path: "/tmp/foo" }));
     assert.strictEqual(row.result_text, "file body");
   });
+
+  it("tool_result and duplicate tool_execution_end produce a single consistent row", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    await stub.fire("tool_execution_start", { toolCallId: "tc-dup", toolName: "read", args: {} });
+    await stub.fire("tool_result", { toolCallId: "tc-dup", toolName: "read", input: {}, content: [{ type: "text", text: "ok" }], isError: false, details: undefined });
+    await stub.fire("tool_execution_end", { toolCallId: "tc-dup", toolName: "read", result: "ignored", isError: false });
+    await stub.fire("tool_execution_end", { toolCallId: "tc-dup", toolName: "read", result: "ignored", isError: false });
+    t.flush();
+
+    const count = db.prepare("SELECT COUNT(*) AS c FROM tool_executions WHERE tool_call_id = ?").get("tc-dup") as { c: number };
+    assert.strictEqual(count.c, 1);
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-dup") as Record<string, unknown>;
+    assert.strictEqual(row.result_chars, 2);
+  });
+
+  it("tool_execution_end without matching start does not crash and writes a best-effort row", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    await assert.doesNotReject(async () => {
+      await stub.fire("tool_execution_end", { toolCallId: "tc-orphan", toolName: "bash", result: "out", isError: false });
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-orphan") as Record<string, unknown> | undefined;
+    assert.ok(row, "expected best-effort row");
+    assert.strictEqual(row.tool_name, "bash");
+    assert.strictEqual(row.session_id, "sess-tool");
+    assert.strictEqual(row.args_chars, 0);
+  });
+
+  it("handles empty args and results", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    await stub.fire("tool_execution_start", { toolCallId: "tc-empty", toolName: "read", args: {} });
+    await stub.fire("tool_execution_end", { toolCallId: "tc-empty", toolName: "read", result: "", isError: false });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-empty") as Record<string, unknown>;
+    assert.strictEqual(row.args_chars, 2); // {}
+    assert.strictEqual(row.result_chars, 0);
+    assert.strictEqual(row.result_hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"); // sha256('')
+  });
+
+  it("non-JSON-serializable args store chars only", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(
+      makeConfig(dbPath, { capture: { toolArgs: true, toolResults: false, bashCommand: false } }),
+      db,
+    );
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const badArgs: Record<string, unknown> = { a: 1 };
+    badArgs.self = badArgs;
+
+    await stub.fire("tool_execution_start", { toolCallId: "tc-badargs", toolName: "read", args: badArgs });
+    await stub.fire("tool_execution_end", { toolCallId: "tc-badargs", toolName: "read", result: "ok", isError: false });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-badargs") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(typeof row.args_chars, "number");
+    assert.strictEqual(row.args_json, null);
+  });
 });

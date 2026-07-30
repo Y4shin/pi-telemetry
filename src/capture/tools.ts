@@ -104,6 +104,26 @@ function classifyError(err: unknown): ErrorClass {
   return "unknown";
 }
 
+function hashContentBlocks(
+  blocks: unknown,
+  includeText: boolean,
+  hasher: ReturnType<typeof createHash>,
+): { chars: number; text: string } {
+  let chars = 0;
+  let text = "";
+  if (Array.isArray(blocks)) {
+    for (const block of blocks) {
+      if (isTextBlock(block)) {
+        const t = block.text;
+        hasher.update(t, "utf8");
+        chars += textLength(t);
+        if (includeText) text += t;
+      }
+    }
+  }
+  return { chars, text };
+}
+
 function computeResultMetrics(result: unknown, includeText: boolean): StagedResult {
   const hasher = createHash("sha256");
   let chars = 0;
@@ -113,19 +133,18 @@ function computeResultMetrics(result: unknown, includeText: boolean): StagedResu
     hasher.update(result, "utf8");
     chars = textLength(result);
     if (includeText) text = result;
+  } else if (Array.isArray(result)) {
+    const metrics = hashContentBlocks(result, includeText, hasher);
+    chars = metrics.chars;
+    text = metrics.text;
   } else if (
     result !== null &&
     typeof result === "object" &&
     Array.isArray((result as Record<string, unknown>).content)
   ) {
-    for (const block of (result as { content: unknown[] }).content) {
-      if (isTextBlock(block)) {
-        const t = block.text;
-        hasher.update(t, "utf8");
-        chars += textLength(t);
-        if (includeText) text += t;
-      }
-    }
+    const metrics = hashContentBlocks((result as { content: unknown }).content, includeText, hasher);
+    chars = metrics.chars;
+    text = metrics.text;
   } else {
     const serialized = safeJsonStringify(result) ?? String(result);
     hasher.update(serialized, "utf8");
