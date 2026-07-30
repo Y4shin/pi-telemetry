@@ -8,12 +8,20 @@ import { openDatabase } from "../src/db.ts";
 import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
 import {
   registerSessionCapture,
   registerRunCapture,
   registerTurnCapture,
 } from "../src/capture/index.ts";
+
+function ctxWithSession(sessionId: string): Partial<ExtensionContext> {
+  return {
+    sessionManager: { getSessionId: () => sessionId } as ExtensionContext["sessionManager"],
+    cwd: "/tmp/proj",
+  };
+}
 
 function fakeAssistantMessage(overrides: Partial<AssistantMessage> = {}): AssistantMessage {
   return {
@@ -77,7 +85,7 @@ describe("session capture", () => {
     registerSessionCapture(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, {
-      sessionManager: { getSessionId: () => "sess-1" },
+      sessionManager: { getSessionId: () => "sess-1" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
     t.flush();
@@ -100,7 +108,7 @@ describe("session capture", () => {
     registerSessionCapture(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, {
-      sessionManager: { getSessionId: () => "sess-2" },
+      sessionManager: { getSessionId: () => "sess-2" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
     await stub.fire("session_shutdown", { reason: "quit" });
@@ -118,7 +126,7 @@ describe("session capture", () => {
     registerSessionCapture(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, {
-      sessionManager: { getSessionId: () => "sess-3" },
+      sessionManager: { getSessionId: () => "sess-3" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
     await stub.fire("session_info_changed", { name: "renamed" });
@@ -135,7 +143,7 @@ describe("session capture", () => {
     registerSessionCapture(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, {
-      sessionManager: { getSessionId: () => "sess-4" },
+      sessionManager: { getSessionId: () => "sess-4" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
     t.flush();
@@ -167,7 +175,7 @@ describe("run capture", () => {
   function setupSession(stub: ReturnType<typeof createL1Stub>, t: ReturnType<typeof createBuffer>) {
     registerSessionCapture(stub.pi, t);
     return stub.fire("session_start", { reason: "startup" }, {
-      sessionManager: { getSessionId: () => "sess-run" },
+      sessionManager: { getSessionId: () => "sess-run" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
   }
@@ -239,7 +247,7 @@ describe("turn capture", () => {
     registerSessionCapture(stub.pi, t);
     registerRunCapture(stub.pi, t);
     await stub.fire("session_start", { reason: "startup" }, {
-      sessionManager: { getSessionId: () => "sess-turn" },
+      sessionManager: { getSessionId: () => "sess-turn" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
     await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });

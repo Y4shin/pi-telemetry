@@ -3,9 +3,15 @@ import { loadConfig, loadMergedSettings } from "./src/config.ts";
 import { openDatabase } from "./src/db.ts";
 import { createBuffer } from "./src/buffer.ts";
 import type { Telemetry } from "./src/state.ts";
+import {
+  registerSessionCapture,
+  registerRunCapture,
+  registerTurnCapture,
+} from "./src/capture/index.ts";
 
 export default function piTelemetryExtension(pi: ExtensionAPI) {
   let telemetry: Telemetry | null = null;
+  let registered = false;
 
   pi.on("session_start", async (_event: SessionStartEvent, ctx: ExtensionContext) => {
     const config = loadConfig(
@@ -17,6 +23,12 @@ export default function piTelemetryExtension(pi: ExtensionAPI) {
     try {
       const db = openDatabase(config.dbPath);
       telemetry = createBuffer(config, db);
+      if (!registered) {
+        registerSessionCapture(pi, telemetry);
+        registerRunCapture(pi, telemetry);
+        registerTurnCapture(pi, telemetry);
+        registered = true;
+      }
     } catch (err) {
       // Best-effort: telemetry disabled if DB cannot be opened.
       // eslint-disable-next-line no-console
