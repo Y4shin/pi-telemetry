@@ -251,3 +251,50 @@ recorded in `docs/testing.md` during slice 1:
   the ordering-buffer logic depends on current SDK event ordering. A
   deviation report is at
   `docs/tasks/pi-telemetry/deviation-reports/llm-request-capture.md`.
+- **tool-bash-capture (landed 2026-07-30):** capture handlers for SPEC
+  section 1.5-1.6 `tool_executions` and `bash_executions`.
+  `registerToolCapture` handles `tool_execution_start`/`tool_result`/
+  `tool_execution_end`, writes exactly one row per `tool_call_id`
+  (deduplicated across `tool_result`+`tool_execution_end`
+  interleaves), classifies errors into the bounded set
+  `timeout|not_found|permission|validation|unknown` (raw messages
+  never stored), and keeps `args_json`/`result_text` NULL unless
+  `capture.toolArgs`/`capture.toolResults` are explicitly enabled
+  (default: `*_chars` lengths + SHA-256 `result_hash` only).
+  `registerBashCapture` wraps `createLocalBashOperations()` to time
+  `user_bash` execution and INSERT `bash_executions` rows with
+  `exit_code`/`cancelled`/`truncated`/`output_chars`/
+  `exclude_from_context` plus command length and SHA-256 hash -- no
+  command content ever stored; exec errors rethrow after a best-effort
+  row so original behavior is preserved. 15 new tests green (8 tool +
+  6 bash + 1 L2 scripted `read` tool-call row), full suite 68/68,
+  `tsc --noEmit` clean. Divergences from plan: (1) L1 harness widened
+  -- `test/helpers/l1-stub.ts` `fire()` now returns the fired
+  handler's result (`Promise<R | undefined>`) so value-returning
+  events (`user_bash`, `before_agent_start`, `tool_call`) are testable
+  in L1; additive and backward-compatible, existing tests ignore it;
+  (2) `tools.ts` inlines incremental `createHash().update()` for
+  streaming result hashing instead of the string-only `sha256()` from
+  `src/hash.ts` (used by `bash.ts`); `textLength()` is duplicated
+  verbatim between the two modules -- coherence-refactor candidates
+  for the step-3 cleanup (consolidate into a shared
+  `sha256Stream`/`textLength` in `src/hash.ts`); (3)
+  `ToolExecutionStartEvent`/`ToolExecutionEndEvent`/`ToolResultEvent`
+  are not top-level exports of `@earendil-works/pi-coding-agent`; the
+  handler relies on contextual typing from `pi.on` overloads, matching
+  `src/capture/llm.ts`. Other coherence-review notes: orphan
+  `tool_execution_end` writes a best-effort row with `duration_ms
+  NULL` (whereas `llm.ts` drops orphans -- both satisfy their slice
+  docs; consistency nuance for the refactor); `completedToolCallIds`
+  grows unboundedly for process lifetime (consider clearing at
+  session/run boundary); `InFlightTool` captures session/run/turn ids
+  at start but the INSERT uses fresh `correlation()` (dead data).
+  Residual risks: bash `output_chars` counts raw buffer bytes rather
+  than UTF-8 text bytes (defensible, differs from other `*_chars`
+  columns); bash `truncated` is inferred from raw byte/line counts vs
+  `DEFAULT_MAX_BYTES`/`DEFAULT_MAX_LINES`, an approximation of pi's
+  sanitized-text truncation (bounded by pi's rolling buffer, so
+  reliable in practice); tool capture builds the full result text for
+  hashing -- large results allocate when `capture.toolResults` is
+  enabled only. A deviation report is at
+  `docs/tasks/pi-telemetry/deviation-reports/tool-bash-capture.md`.
