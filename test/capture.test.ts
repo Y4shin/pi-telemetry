@@ -117,3 +117,74 @@ describe("session capture", () => {
     assert.strictEqual(row.ended_unix_ms, null);
   });
 });
+
+describe("run capture", () => {
+  let tmp: string;
+  let dbPath: string;
+  let db: DatabaseSync;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "pi-telemetry-runs-"));
+    dbPath = join(tmp, "telemetry.db");
+    db = openDatabase(dbPath);
+  });
+
+  afterEach(() => {
+    try {
+      db.close();
+      rmSync(tmp, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  });
+
+  function setupSession(stub: ReturnType<typeof createL1Stub>, t: ReturnType<typeof createBuffer>) {
+    registerSessionCapture(stub.pi, t);
+    return stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-run" },
+      cwd: "/tmp/proj",
+    });
+  }
+
+  it("before_agent_start stages prompt lengths and agent_start inserts run row", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerRunCapture(stub.pi, t);
+
+    await stub.fire("before_agent_start", {
+      prompt: "hello",
+      systemPrompt: "be helpful",
+    });
+    await stub.fire("agent_start", {});
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM agent_runs WHERE session_id = ?").get("sess-run") as Record<string, unknown>;
+    assert.ok(row, "agent_runs row should exist");
+    assert.ok(typeof row.run_id, "string");
+    assert.strictEqual(row.prompt_chars, 5);
+    assert.strictEqual(row.system_prompt_chars, 10);
+    assert.strictEqual(row.outcome, null);
+  });
+
+  it("agent_end and agent_settled produce distinct outcomes", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerRunCapture(stub.pi, t);
+
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    await stub.fire("agent_end", { messages: [{}, {}, {}] });
+    t.flush();
+
+    const row1 = db.prepare("SELECT * FROM agent_runs WHERE session_id = ?").get("sess-run") as Record<string, unknown>;
+    assert.strictEqual(row1.outcome, "end");
+    assert.strictEqual(row1.message_count, 3);
+    assert.strictEqual(typeof row1.duration_ms, "number");
+
+    await stub.fire("agent_settled", {});
+    t.flush();
+
+    const row2 = db.prepare("SELECT * FROM agent_runs WHERE session_id = ?").get("sess-run") as Record<string, unknown>;
+    assert.strictEqual(row2.outcome, "settled");
+  });
+});
