@@ -225,6 +225,43 @@ describe("session events capture", () => {
     assert.strictEqual(payload.old_leaf_id, undefined);
   });
 
+  it("session_tree no-op move (same leaf) is still recorded", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerSessionEventsCapture(stub.pi, t);
+
+    await stub.fire("session_tree", {
+      newLeafId: "leaf-same",
+      oldLeafId: "leaf-same",
+    });
+    t.flush();
+
+    const rows = db.prepare("SELECT * FROM session_events WHERE session_id = ?").all("sess-events") as Array<Record<string, unknown>>;
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].type, "tree_nav");
+    const payload = JSON.parse(rows[0].payload as string);
+    assert.strictEqual(payload.old_leaf_id, "leaf-same");
+    assert.strictEqual(payload.new_leaf_id, "leaf-same");
+  });
+
+  it("rows include unix_ms for ordering", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerSessionEventsCapture(stub.pi, t);
+
+    const before = Date.now();
+    await stub.fire("thinking_level_select", { previousLevel: "off", level: "medium" });
+    t.flush();
+    const after = Date.now();
+
+    const row = db.prepare("SELECT * FROM session_events WHERE session_id = ?").get("sess-events") as Record<string, unknown>;
+    assert.strictEqual(typeof row.unix_ms, "number");
+    assert.ok((row.unix_ms as number) >= before);
+    assert.ok((row.unix_ms as number) <= after);
+  });
+
   it("event without session_id is skipped", async () => {
     const stub = createL1Stub();
     const t = createBuffer(makeConfig(dbPath), db);
