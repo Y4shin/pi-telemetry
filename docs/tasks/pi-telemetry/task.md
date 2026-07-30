@@ -183,3 +183,39 @@ recorded in `docs/testing.md` during slice 1:
   uses contextual typing from `pi.on` overloads since
   `ModelSelectEvent`/`ThinkingLevelSelectEvent` are not top-level
   exports of `@earendil-works/pi-coding-agent`.
+- **feedback-collector (landed 2026-07-30):** SPEC section 5 generic
+  structured-feedback intake via a shared
+  `validateAndSerialize`/`handleFeedback` path funneling both the
+  `pi-telemetry:submit-feedback` bus listener and the
+  `submit_feedback` agent tool. Bus listener registered at extension
+  load (emit without pi-telemetry is a documented no-op). Validation:
+  non-empty `source`/`kind`; `data` serialized as JSON (objects) or
+  stored raw (strings); UTF-8 byte cap against
+  `config.feedbackMaxBytes` (64 KiB). Violations ->
+  `telemetry_meta.feedback_rejected`, never a throw. Tool forces
+  `source = "pi"`, describes the local telemetry store (coexistence
+  with the OTLP tool; no `promptGuidelines` per SPEC section 5.2).
+  Enrichment: `session_id`, `run_id`, `turn_index`,
+  `received_unix_ms`; both paths stamp `received_unix_ms` at receipt
+  and queries order by it. Tool `execute` is guarded so telemetry
+  never breaks the Pi session; DB failures are recorded to
+  `telemetry_meta` and the tool returns a success-neutral result.
+  11 new tests green, full suite 46/46, `tsc --noEmit` clean.
+  Divergences/notes vs plan: (1) lineage (`agent_label`, `depth`) is
+  NOT stored on feedback rows -- SPEC section 2's `feedback` table
+  has no lineage columns; feedback carries `session_id`/`run_id`/
+  `turn_index` so lineage is reachable via join to `sessions`
+  (schema-conformant, mirrors the approved lineage-on-sessions
+  amendment); (2) `label: "Submit Feedback"` added to the tool
+  definition (SPEC section 5.2's snippet omits it, but the installed
+  `ToolDefinition` type requires it); (3) feedback arriving before
+  `session_start` is rejected as `feedback_rejected` ("no active
+  session") because `feedback.session_id` is NOT NULL and the proxy
+  has no session context; (4) `data: null`/`undefined` rejected as
+  `feedback_rejected` (SPEC silent on nulls; defensive reading);
+  (5) extra exports `validateAndSerialize`/`handleFeedback` are
+  additive test seams, not consumed elsewhere. Residual risks:
+  `submit_feedback` stays registered if telemetry is disabled at
+  `session_start` (calls silently produce no rows); the tool
+  intentionally cannot distinguish "stored" from "failed to store"
+  from the agent's perspective.
