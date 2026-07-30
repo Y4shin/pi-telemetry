@@ -43,16 +43,13 @@ export function createBuffer(
     event: MetaEvent,
     detail?: string,
   ) => {
-    const sessionId = state.sessionId;
     const params: (string | number | null)[] = [
       now(),
       level,
       event,
       detail ?? null,
+      state.sessionId,
     ];
-    if (sessionId !== undefined) {
-      params.push(sessionId);
-    }
     try {
       db.exec("BEGIN IMMEDIATE");
       const stmt = db.prepare(

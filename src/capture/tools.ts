@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
+import { textLength } from "../hash.ts";
 
 const TOOL_START_PREFIX = "tool:";
 
@@ -29,11 +30,6 @@ interface StagedResult {
 const inFlightTools = new Map<string, InFlightTool>();
 const stagedResults = new Map<string, StagedResult>();
 const completedToolCallIds = new Set<string>();
-
-function textLength(text: string | null | undefined): number {
-  if (text === null || text === undefined) return 0;
-  return Buffer.byteLength(text, "utf8");
-}
 
 function safeJsonStringify(value: unknown): string | null {
   try {

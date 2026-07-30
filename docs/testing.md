@@ -12,7 +12,7 @@ Tests use Node.js built-ins only:
 
 ```bash
 npm run check   # tsc --noEmit
-npm test        # node --test test/
+npm test        # node --test 'test/**/*.test.ts'
 ```
 
 Single-file runs work for fast iteration:

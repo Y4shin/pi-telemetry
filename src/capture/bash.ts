@@ -9,12 +9,7 @@ import type {
 import { createLocalBashOperations, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
-import { sha256 } from "../hash.ts";
-
-function textLength(text: string | null | undefined): number {
-  if (text === null || text === undefined) return 0;
-  return Buffer.byteLength(text, "utf8");
-}
+import { sha256, textLength } from "../hash.ts";
 
 function recordBashExecution(
   t: Telemetry,
