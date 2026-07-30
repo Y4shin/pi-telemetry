@@ -1,0 +1,209 @@
+{
+  "runId": "9ab87caa-5aeb-4e6e-a240-fe0d9f90c0a5",
+  "agent": "tdd-worker",
+  "task": "Implement slice \"feedback-collector\" for task \"pi-telemetry\".\n\nSlice doc: docs/tasks/pi-telemetry/slices/6-feedback-collector.md\nTask doc: docs/tasks/pi-telemetry/task.md\nArch spec: docs/tasks/pi-telemetry/arch-spec.md\nSPEC: SPEC.md (source of truth; §5 for this slice)\n\nBefore writing code:\n1. Read the arch spec — feedback contract: ONE shared local validate+serialize function used by both the bus listener and the submit_feedback tool (source differs; tool forces \"pi\"). Module: src/feedback.ts exporting registerFeedback(pi, t).\n2. Read existing sources: src/state.ts, src/capture/*, index.ts, test/capture.test.ts, test/helpers/, src/config.ts (feedbackMaxBytes).\n3. Pi docs (pi.events bus, pi.registerTool, TypeBox): /nix/store/46l2syffzlyylqhs4mlzaxxyj5ivglry-pi-coding-agent-0.80.10/lib/node_modules/pi-monorepo/docs/extensions.md. Installed types authoritative. Tool description must state it records to the LOCAL telemetry store (SPEC §5.2 coexistence); no promptGuidelines.\n4. Validation rules (SPEC §5.1): source/kind non-empty strings; data serialized as-is (JSON for objects, raw for strings); cap at feedbackMaxBytes (64KiB default); violations → telemetry_meta feedback_rejected, never throw. Enrichment: session_id, run_id, turn_index, received_unix_ms.\n5. Commit after each GREEN.\n\nIf uncertain, write docs/tasks/pi-telemetry/.work/uncertainty.md and stop.\n\n---\n**Output:**\nWrite your findings to exactly this path: /home/pplattner/Projects/pi-telemetry/.pi-subagents/artifacts/outputs/9ab87caa-5aeb-4e6e-a240-fe0d9f90c0a5/tdd-feedback-collector/result.md\nThis path is authoritative for this run.\nIgnore any other output filename or output path mentioned elsewhere, including output destinations in the base agent prompt, system prompt, or task instructions.\n\n## Acceptance Contract\nAcceptance level: checked\nCompletion is not accepted from prose alone. End with a structured acceptance report.\n\nCriteria:\n- criterion-1: Implement the requested change without widening scope\n- criterion-2: Return evidence sufficient for an independent acceptance review\n\nRequired evidence: changed-files, tests-added, commands-run, residual-risks, no-staged-files\n\nReview gate: required by reviewer.\n\nFinish with a fenced JSON block tagged `acceptance-report` in this shape:\nUse empty arrays when no items apply; array fields contain strings unless object entries are shown.\n`criteriaSatisfied[].status` must be exactly one of: satisfied, not-satisfied, not-applicable.\n`commandsRun[].result` must be exactly one of: passed, failed, not-run.\n`manualNotes` and `notes` are optional strings; an empty string means no note and does not satisfy `manual-notes` evidence.\n```acceptance-report\n{\n  \"criteriaSatisfied\": [\n    {\n      \"id\": \"criterion-1\",\n      \"status\": \"satisfied\",\n      \"evidence\": \"specific proof\"\n    },\n    {\n      \"id\": \"criterion-2\",\n      \"status\": \"satisfied\",\n      \"evidence\": \"specific proof\"\n    }\n  ],\n  \"changedFiles\": [\n    \"src/file.ts\"\n  ],\n  \"testsAddedOrUpdated\": [\n    \"test/file.test.ts\"\n  ],\n  \"commandsRun\": [\n    {\n      \"command\": \"command\",\n      \"result\": \"passed\",\n      \"summary\": \"short result\"\n    }\n  ],\n  \"validationOutput\": [\n    \"validation output or concise summary\"\n  ],\n  \"residualRisks\": [\n    \"none\"\n  ],\n  \"noStagedFiles\": true,\n  \"diffSummary\": \"short description of the diff\",\n  \"reviewFindings\": [\n    \"blocker: file.ts:12 - issue found, or no blockers\"\n  ],\n  \"manualNotes\": \"anything else the parent should know\"\n}\n```",
+  "exitCode": 0,
+  "model": "requesty/tensorx/kimi-k2.7-code",
+  "attemptedModels": [
+    "requesty/tensorx/kimi-k2.7-code"
+  ],
+  "modelAttempts": [
+    {
+      "model": "requesty/tensorx/kimi-k2.7-code",
+      "success": true,
+      "exitCode": 0,
+      "usage": {
+        "input": 66917,
+        "output": 15861,
+        "cacheRead": 2136832,
+        "cacheWrite": 0,
+        "cost": 0.81743867,
+        "turns": 39
+      }
+    }
+  ],
+  "acceptance": {
+    "status": "review-required",
+    "evidenceStatus": "checked",
+    "explicit": false,
+    "effectiveAcceptance": {
+      "level": "checked",
+      "explicit": false,
+      "inferredReason": [
+        "async write-capable or risky run"
+      ],
+      "criteria": [
+        {
+          "id": "criterion-1",
+          "must": "Implement the requested change without widening scope",
+          "evidence": [
+            "changed-files",
+            "tests-added",
+            "commands-run",
+            "residual-risks",
+            "no-staged-files"
+          ],
+          "severity": "required"
+        },
+        {
+          "id": "criterion-2",
+          "must": "Return evidence sufficient for an independent acceptance review",
+          "evidence": [
+            "changed-files",
+            "tests-added",
+            "commands-run",
+            "residual-risks",
+            "no-staged-files"
+          ],
+          "severity": "required"
+        }
+      ],
+      "evidence": [
+        "changed-files",
+        "tests-added",
+        "commands-run",
+        "residual-risks",
+        "no-staged-files"
+      ],
+      "verify": [],
+      "review": {
+        "agent": "reviewer",
+        "required": true
+      },
+      "stopRules": []
+    },
+    "inferredReason": [
+      "async write-capable or risky run"
+    ],
+    "criteria": [
+      {
+        "id": "criterion-1",
+        "must": "Implement the requested change without widening scope",
+        "evidence": [
+          "changed-files",
+          "tests-added",
+          "commands-run",
+          "residual-risks",
+          "no-staged-files"
+        ],
+        "severity": "required"
+      },
+      {
+        "id": "criterion-2",
+        "must": "Return evidence sufficient for an independent acceptance review",
+        "evidence": [
+          "changed-files",
+          "tests-added",
+          "commands-run",
+          "residual-risks",
+          "no-staged-files"
+        ],
+        "severity": "required"
+      }
+    ],
+    "runtimeChecks": [
+      {
+        "id": "criterion:criterion-1",
+        "status": "passed",
+        "message": "Required criterion 'criterion-1' satisfied."
+      },
+      {
+        "id": "criterion:criterion-2",
+        "status": "passed",
+        "message": "Required criterion 'criterion-2' satisfied."
+      },
+      {
+        "id": "evidence:changed-files",
+        "status": "passed",
+        "message": "changed-files evidence present."
+      },
+      {
+        "id": "evidence:tests-added",
+        "status": "passed",
+        "message": "tests-added evidence present."
+      },
+      {
+        "id": "evidence:commands-run",
+        "status": "passed",
+        "message": "commands-run evidence present."
+      },
+      {
+        "id": "evidence:residual-risks",
+        "status": "passed",
+        "message": "residual-risks evidence present."
+      },
+      {
+        "id": "evidence:no-staged-files",
+        "status": "passed",
+        "message": "no-staged-files evidence present."
+      },
+      {
+        "id": "no-staged-files",
+        "status": "passed",
+        "message": "No staged files detected."
+      }
+    ],
+    "verifyRuns": [],
+    "childReport": {
+      "criteriaSatisfied": [
+        {
+          "id": "criterion-1",
+          "status": "satisfied",
+          "evidence": "Implemented only the feedback collector scope: src/feedback.ts, index.ts wiring, and test/feedback.test.ts. No unrelated files changed."
+        },
+        {
+          "id": "criterion-2",
+          "status": "satisfied",
+          "evidence": "All 46 tests pass (including 11 new feedback tests); tsc --noEmit clean; changed files, commands run, and residual risks listed below."
+        }
+      ],
+      "changedFiles": [
+        "src/feedback.ts",
+        "index.ts",
+        "test/feedback.test.ts"
+      ],
+      "testsAddedOrUpdated": [
+        "test/feedback.test.ts"
+      ],
+      "commandsRun": [
+        {
+          "command": "npm test",
+          "result": "passed",
+          "summary": "46/46 tests passing across 11 suites"
+        },
+        {
+          "command": "npm run check",
+          "result": "passed",
+          "summary": "tsc --noEmit completed with no errors"
+        }
+      ],
+      "validationOutput": [
+        "node --test: 46 pass, 0 fail",
+        "tsc --noEmit: clean"
+      ],
+      "residualRisks": [
+        "Lineage is not stored directly on feedback rows; consumers must join sessions for agent_label/depth.",
+        "Tool remains registered even if telemetry is disabled at session_start; calls silently produce no rows."
+      ],
+      "noStagedFiles": true,
+      "diffSummary": "Added src/feedback.ts with registerFeedback, shared validate+serialize, bus listener and submit_feedback tool; wired into index.ts; added 11 feedback tests.",
+      "reviewFindings": [
+        "no blockers"
+      ],
+      "manualNotes": "Commit 2ca08ea on slice/feedback-collector. The .pi-subagents artifact files and docs/tasks/state.yaml changes are unrelated workflow state and were not committed."
+    },
+    "reviewResult": {
+      "status": "review-required",
+      "findings": [
+        {
+          "severity": "non-blocking",
+          "issue": "Independent review has not been supplied.",
+          "rationale": "The run cannot be marked reviewed from child evidence alone."
+        }
+      ]
+    }
+  },
+  "transcriptPath": "/home/pplattner/Projects/pi-telemetry/.pi-subagents/artifacts/9ab87caa-5aeb-4e6e-a240-fe0d9f90c0a5_tdd-worker_0_transcript.jsonl",
+  "skills": [],
+  "timestamp": 1785413803718
+}

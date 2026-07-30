@@ -1,0 +1,80 @@
+{
+  "runId": "249a9b5b-488d-4c72-b726-767bba13bc5f",
+  "agent": "slice-verifier",
+  "task": "Verify slice \"session-run-turn-capture\" of task pi-telemetry.\nImplementation: # Slice: session-run-turn-capture — TDD result\n\n## Summary\n\nImplemented capture handlers for `sessions`, `agent_runs`, and `turns` per SPEC §1.1–1.3 and the slice-2 contract for downstream slices.\n\n## What changed\n\n- `src/state.ts` — extended `RuntimeState` with:\n  - `lineage: { parentSessionId, parentRunId, depth, agentLabel }` (defaulted empty/null) so slice 7 only needs to populate the seam.\n  - `stagedPromptChars` / `stagedSystemPromptChars` for run-row prompt-length staging.\n- `src/capture/sessions.ts` — `session_start` INSERT (with the four lineage columns), `session_shutdown` UPDATE, `session_info_changed` UPDATE.\n- `src/capture/runs.ts` — `before_agent_start` staging, `agent_start` INSERT with UUID `runId`, `agent_end`/`agent_settled` UPDATE with distinct outcomes.\n- `src/capture/turns.ts` — `turn_start` INSERT with UUID `turnId` + `context_tokens_at_start` sampled from `ctx.getContextUsage()`, `turn_end` UPDATE with full usage/cost breakdown and `tool_result_count`.\n- `src/capture/index.ts` — public barrel export.\n- `src/version.ts` — reads extension version from `package.json` for the `sessions.ext_version` column.\n- `index.ts` — registers capture handlers using a lightweight proxy so the real telemetry instance can be swapped in at `session_start`; close is ordered after the capture shutdown UPDATE.\n- `test/capture.test.ts` — L1 fake-event coverage for all handlers plus failure modes.\n- `test/l2-capture.test.ts` — L2 SDK mock-session test verifying real pipeline rows.\n\n## Test results\n\n- `npm run check` (tsc --noEmit): clean\n- `npm test`: 24/24 passing\n  - buffer: 4/4\n  - session capture: 4/4\n  - run capture: 2/2\n  - turn capture: 5/5\n  - config: 3/3\n  - db: 3/3\n  - L1 harness: 1/1\n  - L2 capture: 1/1\n  - L2 harness: 1/1\n\n## Divergence from plan\n\n1. Added `src/version.ts` to source `ext_version` from `package.json`; the slice doc did not list this file but the SPEC requires `ext_version` per session.\n2. Extended `RuntimeState` now with `lineage`, `stagedPromptChars`, and `stagedSystemPromptChars` — these are required by this slice's run capture and the slice-7 lineage seam.\n3. Used a proxy telemetry object in `index.ts` to register handlers once at factory load while lazily binding the real buffer at `session_start`. This avoids stale-handler problems if the same extension instance sees multiple `session_start` events.\n4. The L2 mock-provider test asserts row existence, linkage, and field population rather than exact token/cost figures because `@earendil-works/pi-ai` `fauxProvider` computes token usage from context length and reports zero cost for the test model.\n\n## Notable events\n\n- First checkpoint commit accidentally included untracked `.pi-subagents` artifacts; reverted with `git reset --soft HEAD~1` and re-committed only project files.\n- Added proxy wiring after realizing that registering capture handlers inside `session_start` could leave a stale `telemetry` reference on subsequent session-start events in the same instance.\n\n## Residual risks\n\n- `session_start` uses plain `INSERT`; if a resumed session reuses the same `session_id`, the resulting primary-key conflict will be swallowed by the buffer as a `write_failed` meta row. The slice doc lists \"resume with pre-existing session row\" as a key scenario but does not mandate `INSERT OR IGNORE`; downstream coherence review should decide whether to switch to `INSERT OR IGNORE`/`INSERT OR REPLACE`.\n- `turn_end` without a matching `turn_start` records a `handler_error` meta row but does not attempt to INSERT a partial turn row; this matches the \"no orphan UPDATE\" requirement.\n\nOutput saved to: /home/pplattner/Projects/pi-telemetry/.pi-subagents/artifacts/outputs/249a9b5b-488d-4c72-b726-767bba13bc5f/tdd-session-run-turn-capture/result.md (3.5 KB, 50 lines). Read this file if needed..\nRun npm run check and npm test (the fast suite). Block on failure.\n\n---\n**Output:**\nWrite your findings to exactly this path: /home/pplattner/Projects/pi-telemetry/.pi-subagents/artifacts/outputs/249a9b5b-488d-4c72-b726-767bba13bc5f/verify-session-run-turn-capture/result.md\nThis path is authoritative for this run.\nIgnore any other output filename or output path mentioned elsewhere, including output destinations in the base agent prompt, system prompt, or task instructions.\n\n## Acceptance Contract\nAcceptance level: attested\nCompletion is not accepted from prose alone. End with a structured acceptance report.\n\nCriteria:\n- criterion-1: Return a concise result and residual risks when applicable\n\nRequired evidence: manual-notes, residual-risks\n\nFinish with a fenced JSON block tagged `acceptance-report` in this shape:\nUse empty arrays when no items apply; array fields contain strings unless object entries are shown.\n`criteriaSatisfied[].status` must be exactly one of: satisfied, not-satisfied, not-applicable.\n`commandsRun[].result` must be exactly one of: passed, failed, not-run.\n`manualNotes` and `notes` are optional strings; an empty string means no note and does not satisfy `manual-notes` evidence.\n```acceptance-report\n{\n  \"criteriaSatisfied\": [\n    {\n      \"id\": \"criterion-1\",\n      \"status\": \"satisfied\",\n      \"evidence\": \"specific proof\"\n    }\n  ],\n  \"changedFiles\": [\n    \"src/file.ts\"\n  ],\n  \"testsAddedOrUpdated\": [\n    \"test/file.test.ts\"\n  ],\n  \"commandsRun\": [\n    {\n      \"command\": \"command\",\n      \"result\": \"passed\",\n      \"summary\": \"short result\"\n    }\n  ],\n  \"validationOutput\": [\n    \"validation output or concise summary\"\n  ],\n  \"residualRisks\": [\n    \"none\"\n  ],\n  \"noStagedFiles\": true,\n  \"diffSummary\": \"short description of the diff\",\n  \"reviewFindings\": [\n    \"blocker: file.ts:12 - issue found, or no blockers\"\n  ],\n  \"manualNotes\": \"anything else the parent should know\"\n}\n```",
+  "exitCode": 0,
+  "model": "tensorx/deepseek-v4-pro",
+  "attemptedModels": [
+    "tensorx/deepseek-v4-pro"
+  ],
+  "modelAttempts": [
+    {
+      "model": "tensorx/deepseek-v4-pro",
+      "success": true,
+      "exitCode": 0,
+      "usage": {
+        "input": 5327,
+        "output": 1312,
+        "cacheRead": 21760,
+        "cacheWrite": 0,
+        "cost": 0.02348865,
+        "turns": 6
+      }
+    }
+  ],
+  "acceptance": {
+    "status": "rejected",
+    "evidenceStatus": "rejected",
+    "explicit": false,
+    "effectiveAcceptance": {
+      "level": "attested",
+      "explicit": false,
+      "inferredReason": [
+        "default lightweight attestation"
+      ],
+      "criteria": [
+        {
+          "id": "criterion-1",
+          "must": "Return a concise result and residual risks when applicable",
+          "evidence": [
+            "manual-notes",
+            "residual-risks"
+          ],
+          "severity": "required"
+        }
+      ],
+      "evidence": [
+        "manual-notes",
+        "residual-risks"
+      ],
+      "verify": [],
+      "stopRules": []
+    },
+    "inferredReason": [
+      "default lightweight attestation"
+    ],
+    "criteria": [
+      {
+        "id": "criterion-1",
+        "must": "Return a concise result and residual risks when applicable",
+        "evidence": [
+          "manual-notes",
+          "residual-risks"
+        ],
+        "severity": "required"
+      }
+    ],
+    "runtimeChecks": [
+      {
+        "id": "attestation",
+        "status": "failed",
+        "message": "Structured acceptance report not found."
+      }
+    ],
+    "verifyRuns": [],
+    "childReportParseError": "Structured acceptance report not found."
+  },
+  "transcriptPath": "/home/pplattner/Projects/pi-telemetry/.pi-subagents/artifacts/249a9b5b-488d-4c72-b726-767bba13bc5f_slice-verifier_1_transcript.jsonl",
+  "skills": [],
+  "timestamp": 1785412679511
+}

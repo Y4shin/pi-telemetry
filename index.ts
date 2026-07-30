@@ -9,6 +9,7 @@ import {
   registerSessionCapture,
   registerRunCapture,
   registerTurnCapture,
+  registerLlmCapture,
   registerSessionEventsCapture,
 } from "./src/capture/index.ts";
 import { registerFeedback } from "./src/feedback.ts";
@@ -69,6 +70,7 @@ export default function piTelemetryExtension(pi: ExtensionAPI) {
   registerRunCapture(pi, telemetry);
   registerTurnCapture(pi, telemetry);
   registerSessionCapture(pi, telemetry);
+  registerLlmCapture(pi, telemetry);
   registerSessionEventsCapture(pi, telemetry);
   registerFeedback(pi, telemetry);
 
