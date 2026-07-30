@@ -2,8 +2,10 @@
 kind: idea
 title: "pi-telemetry: skill invocation capture"
 slug: skill-invocation-capture
-status: raw
+status: proposed
 created_at: 2026-07-30T14:05:00Z
+grilled_at:
+converted_to:
 ---
 
 # pi-telemetry: skill invocation capture
@@ -39,15 +41,15 @@ never the text. A dedicated upstream skill event (clean name + args, no raw
 input) would be preferable — consider upstreaming before building on
 `user_input`.
 
-## Open questions for grilling
+## Open questions
 
-- `/skill:name` only, or also skill-triggered slash commands and
-  auto-invoked skills?
-- Payload fields: name, args length/hash, source (user/typed vs.
-  programmatic)? Correlate with run/turn at invocation time?
-- Does `user_input` see all invocation paths (TUI, RPC, `pi -p`)? Are there
-  paths that bypass it?
-- Should this also cover custom commands/prompt templates (`/template`)?
-  Same seam, same questions.
-- Upstream a dedicated `skill_invoke` event into pi first, or ship on
-  `user_input` now and migrate the handler later?
+- [ ] `/skill:name` only, or also skill-triggered slash commands and
+      auto-invoked skills?
+- [ ] Payload fields: name, args length/hash, source (user/typed vs.
+      programmatic)? Correlate with run/turn at invocation time?
+- [ ] Does `user_input` see all invocation paths (TUI, RPC, `pi -p`)? Are
+      there paths that bypass it?
+- [ ] Should this also cover custom commands/prompt templates (`/template`)?
+      Same seam, same questions.
+- [ ] Upstream a dedicated `skill_invoke` event into pi first, or ship on
+      `user_input` now and migrate the handler later?
