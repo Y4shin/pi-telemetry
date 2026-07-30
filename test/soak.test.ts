@@ -9,7 +9,7 @@ import { openDatabase } from "../src/db.ts";
 
 const SOAK_ENV = process.env.PI_TELEMETRY_SOAK;
 const WORKER_COUNT = 100;
-const ROWS_PER_WORKER = 500;
+const ROWS_PER_WORKER = 1000;
 const TARGET_ROWS_PER_SECOND = 42_000;
 
 const READY_TIMEOUT_MS = 30_000;
@@ -185,6 +185,133 @@ async function spawnWorkers(dbPath: string): Promise<{
     clearTimeout(execTimeout);
   }
 }
+
+async function spawnChildren(
+  script: string,
+  dbPath: string,
+  count: number,
+  envPrefix: string,
+): Promise<{ code: number; signal: NodeJS.Signals | null; error?: string }[]> {
+  const children: ChildProcess[] = [];
+  const results: { code: number; signal: NodeJS.Signals | null; error?: string }[] = [];
+  let readyCount = 0;
+
+  const spawnOne = (i: number): Promise<void> => {
+    return new Promise((resolve) => {
+      const child = fork(script, [], {
+        env: {
+          ...process.env,
+          [`${envPrefix}_DB_PATH`]: dbPath,
+        },
+        silent: true,
+      });
+      children.push(child);
+
+      child.on("message", (msg: unknown) => {
+        const m = msg as { type: string; detail?: string };
+        if (m.type === "ready") {
+          readyCount++;
+        } else if (m.type === "error") {
+          results[i] = { code: 1, signal: null, error: m.detail };
+          resolve();
+        } else if (m.type === "done") {
+          resolve();
+        }
+      });
+
+      child.on("error", (err) => {
+        results[i] = { code: 1, signal: null, error: err.message };
+        resolve();
+      });
+
+      child.on("exit", (code, signal) => {
+        results[i] = results[i] ?? { code: code ?? 0, signal };
+        resolve();
+      });
+    });
+  };
+
+  const promises: Promise<void>[] = [];
+  for (let i = 0; i < count; i++) {
+    promises.push(spawnOne(i));
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const start = Date.now();
+    const check = () => {
+      if (readyCount >= count) {
+        resolve();
+        return;
+      }
+      if (Date.now() - start > READY_TIMEOUT_MS) {
+        killAll(children, "SIGKILL");
+        reject(new Error(`DDL ready-phase timeout: ${readyCount}/${count} ready`));
+        return;
+      }
+      setTimeout(check, 10);
+    };
+    check();
+  });
+
+  for (const child of children) {
+    try {
+      child.send({ type: "start" });
+    } catch (err) {
+      killAll(children, "SIGKILL");
+      throw new Error("failed to send start to DDL worker");
+    }
+  }
+
+  await Promise.all(promises);
+  return results;
+}
+
+describe("idempotent schema init", () => {
+  it("survives 5 concurrent first-starts against a fresh DB", async (t) => {
+    if (SOAK_ENV !== "1") {
+      t.skip("soak gated by PI_TELEMETRY_SOAK=1");
+      return;
+    }
+
+    const tmp = mkdtempSync(join(tmpdir(), "pi-telemetry-ddl-"));
+    const dbPath = join(tmp, "telemetry.db");
+
+    try {
+      const results = await spawnChildren(
+        join(import.meta.dirname, "helpers", "ddl-worker.ts"),
+        dbPath,
+        5,
+        "PI_TELEMETRY_DDL",
+      );
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        assert.strictEqual(
+          r.code,
+          0,
+          `DDL worker ${i} failed (code ${r.code}, signal ${r.signal}): ${r.error ?? ""}`,
+        );
+      }
+
+      const db = openDatabase(dbPath);
+      const version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+      const tableCount = (
+        db.prepare(
+          "SELECT COUNT(*) as n FROM sqlite_master WHERE type='table'",
+        ).get() as { n: number }
+      ).n;
+      db.close();
+
+      assert.strictEqual(version, 1, "schema version should be 1 after concurrent first-starts");
+      assert.ok(tableCount > 0, "schema tables should exist after concurrent first-starts");
+    } finally {
+      cleanupSoakFiles(dbPath);
+      try {
+        rmSync(tmp, { recursive: true, force: true });
+      } catch { /* ignore */ }
+    }
+  });
+});
 
 describe("concurrency soak", () => {
   it("spawns 100 concurrent writers against a shared DB", async (t) => {

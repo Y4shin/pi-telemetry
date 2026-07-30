@@ -160,20 +160,47 @@ export const MIGRATIONS: readonly Migration[] = [
   },
 ];
 
+function isBusyError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("database is locked") || msg.includes("BUSY");
+}
+
+function syncSleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 export function openDatabase(dbPath: string): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA journal_mode=WAL");
-  db.exec("PRAGMA synchronous=NORMAL");
-  db.exec("PRAGMA busy_timeout=5000");
-  db.exec("PRAGMA foreign_keys=ON");
 
-  const current = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
-  for (const migration of MIGRATIONS) {
-    if (migration.version > current) {
-      db.exec(migration.sql);
-      db.exec(`PRAGMA user_version = ${migration.version}`);
+  const init = () => {
+    db.exec("PRAGMA journal_mode=WAL");
+    db.exec("PRAGMA synchronous=NORMAL");
+    db.exec("PRAGMA busy_timeout=5000");
+    db.exec("PRAGMA foreign_keys=ON");
+
+    const current = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+    for (const migration of MIGRATIONS) {
+      if (migration.version > current) {
+        db.exec(migration.sql);
+        db.exec(`PRAGMA user_version = ${migration.version}`);
+      }
+    }
+  };
+
+  // Concurrent first-starts can race on the initial CREATE TABLE IF NOT EXISTS.
+  // Retry with exponential backoff so that idempotent DDL survives the race.
+  const maxAttempts = 10;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      init();
+      return db;
+    } catch (err) {
+      if (!isBusyError(err) || attempt === maxAttempts) {
+        throw err;
+      }
+      syncSleep(50 * Math.pow(2, attempt - 1));
     }
   }
-  return db;
+  return db; // unreachable; satisfies TypeScript.
 }
