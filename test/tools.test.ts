@@ -200,7 +200,7 @@ describe("tool execution capture", () => {
     assert.strictEqual(row.result_chars, 2);
   });
 
-  it("tool_execution_end without matching start does not crash and writes a best-effort row", async () => {
+  it("tool_execution_end without matching start is swallowed and records a meta note", async () => {
     const stub = createL1Stub();
     const t = createBuffer(makeConfig(dbPath), db);
     await setupSessionRunTurn(stub, t);
@@ -212,10 +212,10 @@ describe("tool execution capture", () => {
     t.flush();
 
     const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-orphan") as Record<string, unknown> | undefined;
-    assert.ok(row, "expected best-effort row");
-    assert.strictEqual(row.tool_name, "bash");
-    assert.strictEqual(row.session_id, "sess-tool");
-    assert.strictEqual(row.args_chars, 0);
+    assert.strictEqual(row, undefined);
+    const meta = db.prepare("SELECT * FROM telemetry_meta WHERE session_id = ? AND event = ?").get("sess-tool", "handler_error") as Record<string, unknown> | undefined;
+    assert.ok(meta, "expected meta note for orphan tool_execution_end");
+    assert.ok(String(meta.detail).includes("orphan"));
   });
 
   it("handles empty args and results", async () => {

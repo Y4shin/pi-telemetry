@@ -266,11 +266,15 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
       }
 
       const inFlight = inFlightTools.get(event.toolCallId);
-      const startMs =
-        inFlight?.startMs ??
-        t.state.timers.get(`${TOOL_START_PREFIX}${event.toolCallId}`) ??
-        t.now();
-      const durationMs = inFlight ? t.now() - inFlight.startMs : null;
+      if (!inFlight) {
+        t.meta("warn", "handler_error", `orphan tool_execution_end: ${event.toolCallId}`);
+        stagedResults.delete(event.toolCallId);
+        t.state.timers.delete(`${TOOL_START_PREFIX}${event.toolCallId}`);
+        return;
+      }
+
+      const startMs = inFlight.startMs;
+      const durationMs = t.now() - inFlight.startMs;
 
       let staged = stagedResults.get(event.toolCallId);
       if (!staged) {
@@ -278,18 +282,14 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
         staged = stagedResults.get(event.toolCallId)!;
       }
 
-      const toolName = inFlight?.toolName ?? event.toolName;
-      const argsChars = inFlight?.argsChars ?? 0;
-      const argsJson = inFlight?.argsJson ?? null;
-
       insertToolExecution(
         t,
         event.toolCallId,
-        toolName,
+        inFlight.toolName,
         startMs,
         durationMs,
-        argsChars,
-        argsJson,
+        inFlight.argsChars,
+        inFlight.argsJson,
         staged,
       );
 
