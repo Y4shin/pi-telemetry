@@ -92,7 +92,12 @@ slice 7 only fills the seam.
 **3. llm-request-capture** — Exports `registerLlmCapture(pi, t)`. Consumes
 `state.correlation()` and `state.timers` (TTFT/stream markers keyed by message
 identity from the event payload; module-scope map if payload identity requires
-it). `after_provider_response` updates the most recent in-flight request row.
+it). `after_provider_response` updates the most recent in-flight request row —
+or, if the response precedes the stream (real SDK ordering: HTTP headers
+arrive before `message_start`), buffers status/retry-after per-turn and
+applies them to the next `message_start`. Markers are keyed by derived
+signature (`provider|model|api|timestamp|responseId`) since the payload has
+no `request_id`.
 
 **4. tool-bash-capture** — Exports `registerToolCapture(pi, t)`,
 `registerBashCapture(pi, t)`. Consumes `correlation()`, `timers`, `sha256()`,
