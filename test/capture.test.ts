@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../src/db.ts";
 import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
+import { getPiVersion } from "../src/version.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
@@ -100,6 +101,8 @@ describe("session capture", () => {
     assert.strictEqual(row.parent_run_id, null);
     assert.strictEqual(row.agent_label, null);
     assert.strictEqual(row.depth, null);
+    assert.strictEqual(row.pi_version, getPiVersion());
+    assert.ok(row.pi_version !== null, "pi_version should be populated from installed pi package");
   });
 
   it("session_shutdown updates ended_unix_ms and end_reason", async () => {

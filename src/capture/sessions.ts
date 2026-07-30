@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
-import { getExtensionVersion } from "../version.ts";
+import { getExtensionVersion, getPiVersion } from "../version.ts";
 import { readLineageFromEnv } from "../lineage.ts";
 
 export function registerSessionCapture(pi: ExtensionAPI, t: Telemetry): void {
@@ -31,7 +31,7 @@ export function registerSessionCapture(pi: ExtensionAPI, t: Telemetry): void {
           t.state.lineage.depth,
           null,
           ctx.cwd,
-          process.env.PI_VERSION ?? null,
+          getPiVersion(),
           getExtensionVersion(),
           event.reason,
           null,
