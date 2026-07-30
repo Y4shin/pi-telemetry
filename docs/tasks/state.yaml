@@ -1,2 +1,2 @@
 task: pi-telemetry
-slice: tm-command-surface
+slice: query-telemetry-tool
