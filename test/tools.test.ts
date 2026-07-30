@@ -99,4 +99,58 @@ describe("tool execution capture", () => {
     assert.strictEqual(row.args_json, null);
     assert.strictEqual(row.result_text, null);
   });
+
+  it("classifies errors into bounded error_class values", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const cases: { error: unknown; expected: string }[] = [
+      { error: new Error("request timed out"), expected: "timeout" },
+      { error: { message: "file not found", code: "ENOENT" }, expected: "not_found" },
+      { error: { message: "permission denied", code: "EACCES" }, expected: "permission" },
+      { error: { message: "validation failed" }, expected: "validation" },
+      { error: new Error("something else"), expected: "unknown" },
+    ];
+
+    for (let i = 0; i < cases.length; i++) {
+      const tc = `tc-err-${i}`;
+      await stub.fire("tool_execution_start", { toolCallId: tc, toolName: "bash", args: {} });
+      await stub.fire("tool_execution_end", { toolCallId: tc, toolName: "bash", result: cases[i].error, isError: true });
+    }
+    t.flush();
+
+    for (let i = 0; i < cases.length; i++) {
+      const tc = `tc-err-${i}`;
+      const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get(tc) as Record<string, unknown>;
+      assert.ok(row, `row for ${tc}`);
+      assert.strictEqual(row.is_error, 1);
+      assert.strictEqual(row.error_class, cases[i].expected);
+      assert.strictEqual(typeof row.error_class, "string");
+      assert.strictEqual((row.error_class as string).includes(" "), false, "error_class should be a single category token");
+    }
+  });
+
+  it("produces stable sha256 hashes and keeps content NULL by default", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const result = "same result";
+    const expectedHash = "e57d621119a4d36445e24f71ed022c3833c2ee8b200480346f576930a2a7b5dc";
+
+    await stub.fire("tool_execution_start", { toolCallId: "tc-hash-1", toolName: "read", args: {} });
+    await stub.fire("tool_execution_end", { toolCallId: "tc-hash-1", toolName: "read", result, isError: false });
+    await stub.fire("tool_execution_start", { toolCallId: "tc-hash-2", toolName: "read", args: {} });
+    await stub.fire("tool_execution_end", { toolCallId: "tc-hash-2", toolName: "read", result, isError: false });
+    t.flush();
+
+    const rows = db.prepare("SELECT * FROM tool_executions WHERE session_id = ? ORDER BY tool_call_id").all("sess-tool") as Array<Record<string, unknown>>;
+    assert.strictEqual(rows.length, 2);
+    assert.strictEqual(rows[0].result_hash, rows[1].result_hash);
+    assert.strictEqual(rows[0].result_text, null);
+    assert.strictEqual(rows[0].args_json, null);
+  });
 });
