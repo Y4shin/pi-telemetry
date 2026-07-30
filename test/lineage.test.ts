@@ -119,4 +119,164 @@ describe("lineage foundation", () => {
     assert.strictEqual(row.depth, 5);
     assert.strictEqual(row.agent_label, "spawner");
   });
+
+  it("agent.completed stamps the sessions row for the matching run_id", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+    registerRunCapture(stub.pi, t);
+    registerLineage(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-complete-1"));
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    const runId = t.state.runId;
+    assert.ok(runId);
+
+    stub.events.emit("pi-telemetry:agent.completed", {
+      run_id: runId,
+      parent_session_id: "completed-parent-sess",
+      parent_run_id: "completed-parent-run",
+      depth: 7,
+      agent_label: "finisher",
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-complete-1") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.parent_session_id, "completed-parent-sess");
+    assert.strictEqual(row.parent_run_id, "completed-parent-run");
+    assert.strictEqual(row.depth, 7);
+    assert.strictEqual(row.agent_label, "finisher");
+  });
+
+  it("unknown run_id is a no-op and records a meta note", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+    registerRunCapture(stub.pi, t);
+    registerLineage(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-unknown-1"));
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    t.flush();
+
+    stub.events.emit("pi-telemetry:agent.spawned", {
+      run_id: "not-the-current-run",
+      parent_session_id: "x",
+      depth: 1,
+      agent_label: "y",
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-unknown-1") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.parent_session_id, null);
+
+    const meta = db.prepare("SELECT * FROM telemetry_meta WHERE session_id = ? AND event = ? AND level = ?").get("sess-unknown-1", "handler_error", "warn") as Record<string, unknown> | undefined;
+    assert.ok(meta);
+    assert.ok(String(meta.detail).includes("unknown run_id"));
+  });
+
+  it("malformed lineage payloads are swallowed and recorded as meta notes", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+    registerRunCapture(stub.pi, t);
+    registerLineage(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-bad-1"));
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    t.flush();
+
+    await assert.doesNotReject(async () => {
+      stub.events.emit("pi-telemetry:agent.spawned", null);
+      stub.events.emit("pi-telemetry:agent.spawned", "not an object");
+      stub.events.emit("pi-telemetry:agent.completed", { run_id: 12345 });
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-bad-1") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.parent_session_id, null);
+
+    const metaCount = db.prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE session_id = ? AND event = ? AND level = ?").get("sess-bad-1", "handler_error", "warn") as { c: number };
+    assert.strictEqual(metaCount.c, 3);
+  });
+
+  it("env-export helper responds with the current env block", async () => {
+    process.env.PI_TELEMETRY_PARENT_SESSION_ID = "export-parent-sess";
+    process.env.PI_TELEMETRY_PARENT_RUN_ID = "export-parent-run";
+    process.env.PI_TELEMETRY_DEPTH = "2";
+    process.env.PI_TELEMETRY_AGENT_LABEL = "exported";
+
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerLineage(stub.pi, t);
+
+    let response: unknown;
+    stub.events.on("pi-telemetry:lineage-env.response", (data: unknown) => {
+      response = data;
+    });
+
+    stub.events.emit("pi-telemetry:lineage-env.request", {});
+    t.flush();
+
+    assert.deepStrictEqual(response, {
+      PI_TELEMETRY_PARENT_SESSION_ID: "export-parent-sess",
+      PI_TELEMETRY_PARENT_RUN_ID: "export-parent-run",
+      PI_TELEMETRY_DEPTH: 2,
+      PI_TELEMETRY_AGENT_LABEL: "exported",
+    });
+  });
+
+  it("partial env vars are stored without inference", async () => {
+    process.env.PI_TELEMETRY_DEPTH = "9";
+
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-partial-1"));
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-partial-1") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.parent_session_id, null);
+    assert.strictEqual(row.parent_run_id, null);
+    assert.strictEqual(row.depth, 9);
+    assert.strictEqual(row.agent_label, null);
+  });
+
+  it("non-numeric depth env is tolerated as NULL", async () => {
+    process.env.PI_TELEMETRY_DEPTH = "not-a-number";
+
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-depth-1"));
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-depth-1") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.depth, null);
+  });
+
+  it("empty-string label env is stored as empty string", async () => {
+    process.env.PI_TELEMETRY_AGENT_LABEL = "";
+
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-empty-1"));
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-empty-1") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.agent_label, "");
+  });
 });
