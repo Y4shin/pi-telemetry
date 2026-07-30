@@ -38,13 +38,15 @@ describe("L2 capture", () => {
     const sessionRow = db.prepare("SELECT * FROM sessions LIMIT 1").get() as Record<string, unknown> | undefined;
     assert.ok(sessionRow, "sessions row expected");
     assert.strictEqual(typeof sessionRow.session_id, "string");
+    const sessionId = sessionRow.session_id as string;
 
-    const runRow = db.prepare("SELECT * FROM agent_runs WHERE session_id = ?").get(sessionRow.session_id) as Record<string, unknown> | undefined;
+    const runRow = db.prepare("SELECT * FROM agent_runs WHERE session_id = ?").get(sessionId) as Record<string, unknown> | undefined;
     assert.ok(runRow, "agent_runs row expected");
     assert.strictEqual(runRow.outcome, "settled");
     assert.strictEqual(typeof runRow.run_id, "string");
+    const runId = runRow.run_id as string;
 
-    const turnRow = db.prepare("SELECT * FROM turns WHERE run_id = ?").get(runRow.run_id) as Record<string, unknown> | undefined;
+    const turnRow = db.prepare("SELECT * FROM turns WHERE run_id = ?").get(runId) as Record<string, unknown> | undefined;
     assert.ok(turnRow, "turns row expected");
     assert.strictEqual(turnRow.provider, "pi-telemetry-test");
     assert.strictEqual(turnRow.model, "test-model");
