@@ -6,7 +6,7 @@ import {
   SettingsManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { fauxProvider, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxProvider, fauxAssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 export interface L2SessionOptions {
@@ -40,7 +40,11 @@ export async function createL2Session(options: L2SessionOptions): Promise<L2Sess
   });
 
   if (options.responses) {
-    faux.setResponses(options.responses.map((r) => (typeof r === "string" ? fauxAssistantMessage(r) : r)));
+    faux.setResponses(
+      options.responses.map((r) =>
+        typeof r === "string" ? fauxAssistantMessage(r) : (r as FauxResponseStep),
+      ),
+    );
   } else {
     faux.setResponses([fauxAssistantMessage("Hello from pi-telemetry L2 harness.")]);
   }
