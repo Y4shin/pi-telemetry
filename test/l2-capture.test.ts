@@ -1,9 +1,10 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { fauxToolCall, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { createL2Session } from "./helpers/l2-session.ts";
 import piTelemetryExtension from "../index.ts";
 
@@ -65,6 +66,53 @@ describe("L2 capture", () => {
     assert.strictEqual(typeof llmRow.started_unix_ms, "number");
     assert.strictEqual(typeof llmRow.duration_ms, "number");
     assert.ok((llmRow.duration_ms as number) >= 0, "duration_ms should be non-negative");
+
+    db.close();
+    await cleanup();
+    delete process.env.PI_TELEMETRY_DB_PATH;
+  });
+
+  it("SDK scripted tool call produces a tool_executions row", async () => {
+    const dbPath = join(tmp, "telemetry-tool.db");
+    process.env.PI_TELEMETRY_DB_PATH = dbPath;
+
+    const filePath = join(tmp, "sample.txt");
+    writeFileSync(filePath, "sample content");
+
+    const { session, cleanup } = await createL2Session({
+      dbPath,
+      cwd: tmp,
+      extensionFactory: piTelemetryExtension,
+      responses: [
+        fauxAssistantMessage(fauxToolCall("read", { path: filePath }, { id: "call-read-1" })),
+        fauxAssistantMessage("Done reading."),
+      ],
+    });
+
+    await session.prompt("Read the file.");
+    await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+
+    assert.ok(existsSync(dbPath), "DB file should exist");
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+
+    const sessionRow = db.prepare("SELECT * FROM sessions LIMIT 1").get() as Record<string, unknown> | undefined;
+    assert.ok(sessionRow, "sessions row expected");
+    const sessionId = sessionRow.session_id as string;
+
+    const toolRow = db.prepare("SELECT * FROM tool_executions WHERE session_id = ?").get(sessionId) as Record<string, unknown> | undefined;
+    assert.ok(toolRow, "tool_executions row expected");
+    assert.strictEqual(toolRow.tool_name, "read");
+    assert.strictEqual(toolRow.tool_call_id, "call-read-1");
+    assert.strictEqual(toolRow.is_error, 0);
+    assert.strictEqual(toolRow.error_class, null);
+    assert.strictEqual(typeof toolRow.started_unix_ms, "number");
+    assert.strictEqual(typeof toolRow.duration_ms, "number");
+    assert.ok((toolRow.duration_ms as number) >= 0, "duration_ms should be non-negative");
+    assert.strictEqual(typeof toolRow.args_chars, "number");
+    assert.strictEqual(typeof toolRow.result_chars, "number");
+    assert.strictEqual(typeof toolRow.result_hash, "string");
+    assert.strictEqual(toolRow.args_json, null);
+    assert.strictEqual(toolRow.result_text, null);
 
     db.close();
     await cleanup();

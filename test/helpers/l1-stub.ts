@@ -14,7 +14,7 @@ export interface L1Stub {
   };
   readonly tools: Array<{ name: string; definition: unknown }>;
   readonly commands: Array<{ name: string; options: unknown }>;
-  fire<E>(event: string, payload: E, ctx?: Partial<ExtensionContext>): Promise<void>;
+  fire<E, R = unknown>(event: string, payload: E, ctx?: Partial<ExtensionContext>): Promise<R | undefined>;
 }
 
 export function createL1Stub(): L1Stub {
@@ -65,11 +65,13 @@ export function createL1Stub(): L1Stub {
     events: pi.events,
     tools,
     commands,
-    fire: async (event, payload, ctx) => {
+    fire: async <E, R = unknown>(event: string, payload: E, ctx?: Partial<ExtensionContext>): Promise<R | undefined> => {
       const context = { ...defaultContext, ...ctx } as ExtensionContext;
+      let result: unknown;
       for (const h of handlers.get(event) ?? []) {
-        await h(payload, context);
+        result = await h(payload, context);
       }
+      return result as R | undefined;
     },
   };
 }
