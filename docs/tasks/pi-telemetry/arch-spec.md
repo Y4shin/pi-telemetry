@@ -146,10 +146,12 @@ TUI-bounded ASCII; no table-formatting deps.
 `CANNED`/`runCanned`; adds only param validation, tool registration, result
 shaping. Preset SQL is **never** duplicated into the tool.
 
-**10. soak-privacy-gate** — No production exports. Adds
-`test/soak.test.ts` (env-gated `PI_TELEMETRY_SOAK=1`) and
-`test/privacy.test.ts`. Soak writer processes reuse the real `src/db.ts` /
-`src/buffer.ts`.
+**10. soak-privacy-gate** — No production exports. The 100-writer synthetic
+soak has been retired as unrealistic for expected load. In its place,
+`test/ddl-first-start.test.ts` (5 forked processes) validates that the
+`openDatabase` BUSY retry survives simultaneous schema creation on a fresh DB;
+`test/privacy.test.ts` remains as the default-config content-leakage gate.
+Both reuse the real `src/db.ts` / `src/buffer.ts`.
 
 ## Error-handling pattern
 
