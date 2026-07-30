@@ -1,1 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# SQLite (local telemetry DBs and test artifacts)
+*.db
+*.db-wal
+*.db-shm
+
+# Pi local state (session/config, observme)
+.pi/
+
+# Subagent runtime artifacts
 .pi-subagents/artifacts/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env
+.env
+.env.*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
