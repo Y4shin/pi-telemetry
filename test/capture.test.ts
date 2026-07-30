@@ -155,6 +155,34 @@ describe("session capture", () => {
     assert.ok(row);
     assert.strictEqual(row.ended_unix_ms, null);
   });
+
+  it("second session_start with same id is ignored and preserves original row", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-resume" } as ExtensionContext["sessionManager"],
+      cwd: "/tmp/proj",
+    });
+    clock += 5000;
+    await assert.doesNotReject(async () => {
+      await stub.fire("session_start", { reason: "resume" }, {
+        sessionManager: { getSessionId: () => "sess-resume" } as ExtensionContext["sessionManager"],
+        cwd: "/tmp/other",
+      });
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-resume") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.start_reason, "startup");
+    assert.strictEqual(row.started_unix_ms, 1000);
+    assert.strictEqual(row.cwd, "/tmp/proj");
+    const metaCount = db.prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE session_id = ? AND event = ?").get("sess-resume", "write_failed") as { c: number };
+    assert.strictEqual(metaCount.c, 0);
+  });
 });
 
 describe("run capture", () => {

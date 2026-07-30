@@ -18,7 +18,7 @@ export function registerSessionCapture(pi: ExtensionAPI, t: Telemetry): void {
       t.state.lineage = readLineageFromEnv(process.env);
 
       t.enqueue(
-        `INSERT INTO sessions (
+        `INSERT OR IGNORE INTO sessions (
           session_id, parent_session_id, parent_run_id, agent_label, depth,
           name, cwd, pi_version, ext_version, start_reason, end_reason,
           started_unix_ms, ended_unix_ms
