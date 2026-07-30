@@ -8,18 +8,14 @@ import type {
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
 import { getExtensionVersion } from "../version.ts";
+import { readLineageFromEnv } from "../lineage.ts";
 
 export function registerSessionCapture(pi: ExtensionAPI, t: Telemetry): void {
   pi.on("session_start", async (event: SessionStartEvent, ctx: ExtensionContext) => {
     guard(t, () => {
       const sessionId = ctx.sessionManager.getSessionId();
       t.state.sessionId = sessionId;
-      t.state.lineage = {
-        parentSessionId: null,
-        parentRunId: null,
-        depth: null,
-        agentLabel: null,
-      };
+      t.state.lineage = readLineageFromEnv(process.env);
 
       t.enqueue(
         `INSERT INTO sessions (

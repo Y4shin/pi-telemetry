@@ -1,3 +1,2 @@
 task: pi-telemetry
-slice: null
-last_landed: tool-bash-capture
+slice: lineage-foundation
