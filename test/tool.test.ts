@@ -244,6 +244,6 @@ describe("query_telemetry tool", () => {
     const idx = result.details.columns.indexOf("day");
     const day = result.details.rows[0][idx] as string;
     const recentDay = new Date(now - 0.5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    assert.ok(day.includes(recentDay.slice(0, 7)), "expected recent month in day value");
+    assert.strictEqual(day, recentDay);
   });
 });
