@@ -171,29 +171,27 @@ LIMIT 500
   turn_latency: {
     description: "Turn duration percentiles by model",
     sql: `
+WITH ranked AS (
+  SELECT
+    model,
+    duration_ms,
+    ROW_NUMBER() OVER (PARTITION BY model ORDER BY duration_ms) AS rn,
+    COUNT(*) OVER (PARTITION BY model) AS n
+  FROM turns
+  WHERE duration_ms IS NOT NULL
+    -- {{since:started_unix_ms}}
+    -- {{model:model}}
+)
 SELECT
-  t.model,
+  model,
   COUNT(*) AS turns,
-  ROUND(AVG(t.duration_ms), 0) AS avg_ms,
-  MIN(t.duration_ms) AS min_ms,
-  MAX(t.duration_ms) AS max_ms,
-  (
-    SELECT t2.duration_ms FROM turns t2
-    WHERE t2.model = t.model AND t2.duration_ms IS NOT NULL
-    ORDER BY t2.duration_ms
-    LIMIT 1 OFFSET (SELECT COUNT(*) FROM turns t3 WHERE t3.model = t.model AND t3.duration_ms IS NOT NULL) / 2
-  ) AS median_ms,
-  (
-    SELECT t2.duration_ms FROM turns t2
-    WHERE t2.model = t.model AND t2.duration_ms IS NOT NULL
-    ORDER BY t2.duration_ms
-    LIMIT 1 OFFSET CAST((SELECT COUNT(*) FROM turns t3 WHERE t3.model = t.model AND t3.duration_ms IS NOT NULL) * 0.95 AS INTEGER)
-  ) AS p95_ms
-FROM turns t
-WHERE t.duration_ms IS NOT NULL
-  -- {{since:t.started_unix_ms}}
-  -- {{model:t.model}}
-GROUP BY t.model
+  ROUND(AVG(duration_ms), 0) AS avg_ms,
+  MIN(duration_ms) AS min_ms,
+  MAX(duration_ms) AS max_ms,
+  MAX(CASE WHEN rn = (n / 2) + 1 THEN duration_ms END) AS median_ms,
+  MAX(CASE WHEN rn = CAST(n * 0.95 AS INTEGER) + 1 THEN duration_ms END) AS p95_ms
+FROM ranked
+GROUP BY model
 ORDER BY turns DESC
 LIMIT 500
 `.trim(),
@@ -240,29 +238,27 @@ LIMIT 500
   ttft_by_model: {
     description: "Time-to-first-token percentiles by model",
     sql: `
+WITH ranked AS (
+  SELECT
+    model,
+    ttft_ms,
+    ROW_NUMBER() OVER (PARTITION BY model ORDER BY ttft_ms) AS rn,
+    COUNT(*) OVER (PARTITION BY model) AS n
+  FROM llm_requests
+  WHERE ttft_ms IS NOT NULL
+    -- {{since:started_unix_ms}}
+    -- {{model:model}}
+)
 SELECT
   model,
   COUNT(*) AS requests,
   ROUND(AVG(ttft_ms), 0) AS avg_ttft_ms,
   MIN(ttft_ms) AS min_ttft_ms,
   MAX(ttft_ms) AS max_ttft_ms,
-  (
-    SELECT l2.ttft_ms FROM llm_requests l2
-    WHERE l2.model = l.model AND l2.ttft_ms IS NOT NULL
-    ORDER BY l2.ttft_ms
-    LIMIT 1 OFFSET (SELECT COUNT(*) FROM llm_requests l3 WHERE l3.model = l.model AND l3.ttft_ms IS NOT NULL) / 2
-  ) AS median_ttft_ms,
-  (
-    SELECT l2.ttft_ms FROM llm_requests l2
-    WHERE l2.model = l.model AND l2.ttft_ms IS NOT NULL
-    ORDER BY l2.ttft_ms
-    LIMIT 1 OFFSET CAST((SELECT COUNT(*) FROM llm_requests l3 WHERE l3.model = l.model AND l3.ttft_ms IS NOT NULL) * 0.95 AS INTEGER)
-  ) AS p95_ttft_ms
-FROM llm_requests l
-WHERE l.ttft_ms IS NOT NULL
-  -- {{since:l.started_unix_ms}}
-  -- {{model:l.model}}
-GROUP BY l.model
+  MAX(CASE WHEN rn = (n / 2) + 1 THEN ttft_ms END) AS median_ttft_ms,
+  MAX(CASE WHEN rn = CAST(n * 0.95 AS INTEGER) + 1 THEN ttft_ms END) AS p95_ttft_ms
+FROM ranked
+GROUP BY model
 ORDER BY requests DESC
 LIMIT 500
 `.trim(),
