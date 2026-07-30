@@ -70,11 +70,25 @@ export function createBuffer(
     }
   };
 
+  const logFlush = (rowCount: number, txDurationMs: number) => {
+    try {
+      const stmt = db.prepare(
+        "INSERT INTO flush_log (unix_ms, session_id, row_count, tx_duration_ms) VALUES (?, ?, ?, ?)",
+      );
+      stmt.run(now(), state.sessionId ?? null, rowCount, txDurationMs);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      recordMeta("error", "write_failed", detail);
+    }
+  };
+
   const flush = () => {
     if (buffer.length === 0) return;
     const batch = buffer;
     buffer = [];
     cancelTimer();
+    const rowCount = batch.length;
+    const startMs = now();
     try {
       db.exec("BEGIN IMMEDIATE");
       for (const stmt of batch) {
@@ -91,7 +105,10 @@ export function createBuffer(
         /* ignore */
       }
       recordMeta("error", "write_failed", detail);
+      return;
     }
+    const txDurationMs = now() - startMs;
+    logFlush(rowCount, txDurationMs);
   };
 
   const enqueue = (
