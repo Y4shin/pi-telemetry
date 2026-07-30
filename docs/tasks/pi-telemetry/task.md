@@ -298,3 +298,30 @@ recorded in `docs/testing.md` during slice 1:
   hashing -- large results allocate when `capture.toolResults` is
   enabled only. A deviation report is at
   `docs/tasks/pi-telemetry/deviation-reports/tool-bash-capture.md`.
+- **lineage-foundation (landed 2026-07-30):** SPEC §4 lineage foundation
+  — `registerLineage(pi, t)` reads `PI_TELEMETRY_PARENT_SESSION_ID`,
+  `PI_TELEMETRY_PARENT_RUN_ID`, `PI_TELEMETRY_DEPTH`,
+  `PI_TELEMETRY_AGENT_LABEL` from env at `session_start` and stamps the
+  `sessions` row (amendment: stamps `sessions`, not `agent_runs` —
+  slice doc `agent_runs` wording is superseded). Bus listener for
+  `pi-telemetry:agent.spawned`/`agent.completed` matches
+  `payload.run_id` against `t.state.runId` and UPDATEs the current
+  `sessions` row. Env-export helper ships as
+  `pi-telemetry:lineage-env.request`/`.response` pair with module
+  comment contract. Malformed payloads and unknown run_ids are
+  swallowed into `telemetry_meta(handler_error, warn)` — never thrown.
+  Partial env (e.g. depth without parent session) stored as-is, no
+  inference. 9 new tests green, full suite 77/77, `tsc --noEmit`
+  clean. **Required coherence-phase fix:** `buildEnvBlock` currently
+  re-exports `process.env` (the vars this process received from its
+  parent); it must instead derive the block from current runtime
+  state: `PARENT_SESSION_ID = t.state.sessionId`,
+  `PARENT_RUN_ID = t.state.runId`,
+  `DEPTH = t.state.lineage.depth + 1` (null → 1),
+  `AGENT_LABEL = t.state.lineage.agentLabel`. This is a corner-case
+  bug (interactive root sessions reply with all-nulls, mislabeling
+  grandchildren) with no v1 consumer — deferred to coherence refactor.
+  The test `env-export helper responds with the current env block` in
+  `test/lineage.test.ts` must also be updated to assert the derived
+  block. Deviation report at
+  `docs/tasks/pi-telemetry/deviation-reports/lineage-foundation.md`.
