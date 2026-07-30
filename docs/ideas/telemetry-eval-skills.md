@@ -2,10 +2,10 @@
 kind: idea
 title: "Telemetry eval skills: python project + DB analysis"
 slug: telemetry-eval-skills
-status: ready
+status: converted
 created_at: 2026-07-30T21:43:58Z
 grilled_at: 2026-07-30T21:58:00Z
-converted_to:
+converted_to: telemetry-eval-skills
 ---
 
 # Telemetry eval skills: python project + DB analysis
