@@ -65,4 +65,55 @@ describe("session capture", () => {
     assert.strictEqual(row.agent_label, null);
     assert.strictEqual(row.depth, null);
   });
+
+  it("session_shutdown updates ended_unix_ms and end_reason", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-2" },
+      cwd: "/tmp/proj",
+    });
+    await stub.fire("session_shutdown", { reason: "quit" });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-2") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.end_reason, "quit");
+    assert.strictEqual(typeof row.ended_unix_ms, "number");
+  });
+
+  it("session_info_changed updates name", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-3" },
+      cwd: "/tmp/proj",
+    });
+    await stub.fire("session_info_changed", { name: "renamed" });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-3") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.name, "renamed");
+  });
+
+  it("session without shutdown leaves ended_at NULL", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-4" },
+      cwd: "/tmp/proj",
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-4") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.ended_unix_ms, null);
+  });
 });
