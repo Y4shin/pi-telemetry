@@ -122,13 +122,21 @@ session; unknown run_id → no-op + meta note. Env-export helper published via
 
 ```ts
 // src/query/sql-guard.ts
-guardedQuery(dbPath, sql): { columns: string[]; rows: unknown[][]; truncated: boolean }
+guardedQuery(dbPath, sql, timeoutMs?): Promise<{ columns: string[]; rows: unknown[][]; truncated: boolean }>
 // src/query/canned.ts
 CANNED: Record<string, { description: string; sql: string }>
-runCanned(name, filters): Table
+runCanned(dbPath, name, filters?): Promise<Table>   // Table extends QueryResult { description }
 // src/query/commands.ts
 registerTelemetryCommands(pi, t): void
 ```
+**Amended after slice 8 landed:** both query functions are **async** —
+`node:sqlite` `DatabaseSync` has no statement-timeout API, so the 3 s
+timeout runs the query in a `worker_threads` worker terminated at the
+deadline. `runCanned` takes `dbPath` first (canned.ts has no config
+dependency). Slice 9 must `await` both and pass `dbPath` from
+`t.config.dbPath`. Extra additive exports slice 9 may use: `CannedFilters`,
+`Table`, `QueryResult`, `ExportOptions`, `exportTable()`; extra canned
+queries beyond the preset list: `session_summary`, `model_cost`, `errors`.
 
 Read-only enforcement is `DatabaseSync { readOnly: true }` +
 `PRAGMA query_only=ON` — **no regex SQL validation ever**. Rendering is
