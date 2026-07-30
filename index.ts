@@ -9,6 +9,7 @@ import {
   registerSessionCapture,
   registerRunCapture,
   registerTurnCapture,
+  registerSessionEventsCapture,
 } from "./src/capture/index.ts";
 
 function createTelemetryProxy(): Telemetry & { setTarget(t: Telemetry | null): void } {
@@ -67,6 +68,7 @@ export default function piTelemetryExtension(pi: ExtensionAPI) {
   registerRunCapture(pi, telemetry);
   registerTurnCapture(pi, telemetry);
   registerSessionCapture(pi, telemetry);
+  registerSessionEventsCapture(pi, telemetry);
 
   // Close after the session-capture shutdown handler has enqueued its UPDATE.
   pi.on("session_shutdown", async (_event: SessionShutdownEvent) => {
