@@ -10,6 +10,18 @@ if (!dbPath || workerId === undefined) {
   throw new Error("soak-worker missing env");
 }
 
+if (!process.send) {
+  throw new Error("soak-worker must be forked with IPC");
+}
+
+const send = (msg: unknown) => {
+  try {
+    process.send!(msg);
+  } catch (err) {
+    // Parent may have gone away during shutdown; ignore.
+  }
+};
+
 const config: TelemetryConfig = {
   enabled: true,
   dbPath,
@@ -27,10 +39,11 @@ const sessionId = `soak-${workerId}-${Date.now()}`;
 t.enqueue("INSERT INTO sessions (session_id, started_unix_ms) VALUES (?, ?)", [sessionId, Date.now()]);
 t.state.sessionId = sessionId;
 
-process.send!({ type: "ready", workerId });
+send({ type: "ready", workerId });
 
-process.once("message", (msg) => {
-  if (msg?.type !== "start") return;
+process.once("message", (raw) => {
+  const msg = raw as { type?: string };
+  if (msg.type !== "start") return;
 
   const startMs = performance.now();
 
@@ -59,7 +72,7 @@ process.once("message", (msg) => {
 
   db.close();
 
-  process.send!({
+  send({
     type: "done",
     workerId,
     rows: rowsPerWorker,
