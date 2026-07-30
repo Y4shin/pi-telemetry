@@ -4,11 +4,11 @@ slug: session-run-turn-capture
 title: "Session + agent-run + turn capture"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: l
 blocked_by: [scaffold-write-path]
-started_at:
-completed_at:
+started_at: 2026-07-30
+completed_at: 2026-07-30
 ---
 
 # Session + agent-run + turn capture

@@ -140,3 +140,24 @@ recorded in `docs/testing.md` during slice 1:
   intentionally deferred to slice 2. Residual risk:
   `loadMergedSettings()` reads project `settings.json` without a trust
   gate — revisit for untrusted-project flows.
+- **session-run-turn-capture (landed 2026-07-30):** capture handlers
+  for `sessions` / `agent_runs` / `turns` (SPEC §1.1–1.3) —
+  `session_start`/shutdown/info_changed INSERT+UPDATEs,
+  `agent_start`/`agent_end`/`agent_settled` with distinct outcomes,
+  `turn_start` sampling `ctx.getContextUsage()` and `turn_end` writing
+  the full usage/cost breakdown; in-memory timers/IDs only. `index.ts`
+  registers handlers through a lazy proxy telemetry object so the real
+  buffer binds at `session_start` without stale references across
+  multiple starts. 24/24 tests green (L1 fake-event + L2 SDK
+  mock-session), `tsc --noEmit` clean. Divergences from plan: (1)
+  added `src/version.ts` to source `ext_version` from `package.json`;
+  (2) `RuntimeState` extended now with `lineage` (slice-7 seam) and
+  `stagedPromptChars`/`stagedSystemPromptChars`; (3) proxy wiring in
+  `index.ts` for reload safety; (4) L2 test asserts row
+  existence/linkage/population rather than exact token/cost figures
+  (`fauxProvider` derives usage from context length, zero cost).
+  Residual risks: `session_start` is plain INSERT — a resumed session
+  reusing the same `session_id` hits a PK conflict swallowed into
+  `telemetry_meta` (coherence review to decide INSERT OR IGNORE);
+  `turn_end` without `turn_start` writes a meta row, no orphan
+  UPDATE (intended).
