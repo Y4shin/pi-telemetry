@@ -65,13 +65,13 @@ export function createL1Stub(): L1Stub {
     events: pi.events,
     tools,
     commands,
-    fire: async (event, payload, ctx) => {
+    fire: async <E, R = unknown>(event: string, payload: E, ctx?: Partial<ExtensionContext>): Promise<R | undefined> => {
       const context = { ...defaultContext, ...ctx } as ExtensionContext;
       let result: unknown;
       for (const h of handlers.get(event) ?? []) {
         result = await h(payload, context);
       }
-      return result;
+      return result as R | undefined;
     },
   };
 }

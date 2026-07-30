@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../src/db.ts";
 import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
-import type { ExtensionContext, BashOperations, UserBashEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, BashOperations, UserBashEvent, UserBashEventResult } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
 import { registerSessionCapture } from "../src/capture/index.ts";
 import { registerBashCapture } from "../src/capture/bash.ts";
@@ -56,7 +56,8 @@ describe("bash execution capture", () => {
     await setupSession(stub, t);
     registerBashCapture(stub.pi, t);
 
-    const result = await stub.fire<UserBashEventResult>("user_bash", {
+    const result = await stub.fire<UserBashEvent, UserBashEventResult>("user_bash", {
+      type: "user_bash",
       command: "echo hello",
       excludeFromContext: false,
       cwd: tmp,
@@ -94,7 +95,8 @@ describe("bash execution capture", () => {
     await setupSession(stub, t);
     registerBashCapture(stub.pi, t);
 
-    const result = await stub.fire<UserBashEventResult>("user_bash", {
+    const result = await stub.fire<UserBashEvent, UserBashEventResult>("user_bash", {
+      type: "user_bash",
       command: "exit 7",
       excludeFromContext: false,
       cwd: tmp,
@@ -116,7 +118,8 @@ describe("bash execution capture", () => {
     await setupSession(stub, t);
     registerBashCapture(stub.pi, t);
 
-    const result = await stub.fire<UserBashEventResult>("user_bash", {
+    const result = await stub.fire<UserBashEvent, UserBashEventResult>("user_bash", {
+      type: "user_bash",
       command: "echo secret",
       excludeFromContext: true,
       cwd: tmp,
@@ -135,7 +138,8 @@ describe("bash execution capture", () => {
     await setupSession(stub, t);
     registerBashCapture(stub.pi, t);
 
-    const result = await stub.fire<UserBashEventResult>("user_bash", {
+    const result = await stub.fire<UserBashEvent, UserBashEventResult>("user_bash", {
+      type: "user_bash",
       command: "big",
       excludeFromContext: false,
       cwd: tmp,
@@ -155,7 +159,8 @@ describe("bash execution capture", () => {
     await setupSession(stub, t);
     registerBashCapture(stub.pi, t);
 
-    const result = await stub.fire<UserBashEventResult>("user_bash", {
+    const result = await stub.fire<UserBashEvent, UserBashEventResult>("user_bash", {
+      type: "user_bash",
       command: "echo hi",
       excludeFromContext: false,
       cwd: tmp,
@@ -179,7 +184,8 @@ describe("bash execution capture", () => {
     await setupSession(stub, t);
     registerBashCapture(stub.pi, t);
 
-    const result = await stub.fire<UserBashEventResult>("user_bash", {
+    const result = await stub.fire<UserBashEvent, UserBashEventResult>("user_bash", {
+      type: "user_bash",
       command: "sleep 10",
       excludeFromContext: false,
       cwd: tmp,

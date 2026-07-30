@@ -1,10 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type {
-  ExtensionAPI,
-  ToolExecutionStartEvent,
-  ToolExecutionEndEvent,
-  ToolResultEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
 
@@ -14,8 +9,8 @@ type ErrorClass = "timeout" | "not_found" | "permission" | "validation" | "unkno
 
 interface InFlightTool {
   toolCallId: string;
-  turnId: string;
-  runId: string;
+  turnId: string | null;
+  runId: string | null;
   sessionId: string;
   toolName: string;
   startMs: number;
@@ -210,7 +205,7 @@ function insertToolExecution(
 }
 
 export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
-  pi.on("tool_execution_start", async (event: ToolExecutionStartEvent) => {
+  pi.on("tool_execution_start", async (event) => {
     guard(t, () => {
       const { sessionId, runId, turnId } = t.state.correlation();
       if (!sessionId || !turnId) return;
@@ -235,7 +230,7 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
     });
   });
 
-  pi.on("tool_result", async (event: ToolResultEvent) => {
+  pi.on("tool_result", async (event) => {
     guard(t, () => {
       const { sessionId, turnId } = t.state.correlation();
       if (!sessionId || !turnId) return;
@@ -261,7 +256,7 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
     });
   });
 
-  pi.on("tool_execution_end", async (event: ToolExecutionEndEvent) => {
+  pi.on("tool_execution_end", async (event) => {
     guard(t, () => {
       if (completedToolCallIds.has(event.toolCallId)) {
         inFlightTools.delete(event.toolCallId);
