@@ -103,8 +103,10 @@ export function registerTelemetryTool(pi: ExtensionAPI, t: Telemetry): void {
         throw new Error("Telemetry DB path is not configured.");
       }
 
-      const hasQuery = typeof params.query === "string" && params.query.trim().length > 0;
-      const hasSql = typeof params.sql === "string" && params.sql.trim().length > 0;
+      const query = typeof params.query === "string" ? params.query.trim() : "";
+      const sql = typeof params.sql === "string" ? params.sql.trim() : "";
+      const hasQuery = query.length > 0;
+      const hasSql = sql.length > 0;
 
       if (hasQuery && hasSql) {
         throw new Error("Provide either query or sql, not both.");
@@ -114,16 +116,14 @@ export function registerTelemetryTool(pi: ExtensionAPI, t: Telemetry): void {
       }
 
       if (hasQuery) {
-        const preset = params.query.trim();
-        if (!(PRESET_NAMES as readonly string[]).includes(preset)) {
-          throw new Error(`Unknown preset: ${preset}. Valid presets: ${PRESET_NAMES.join(", ")}`);
+        if (!(PRESET_NAMES as readonly string[]).includes(query)) {
+          throw new Error(`Unknown preset: ${query}. Valid presets: ${PRESET_NAMES.join(", ")}`);
         }
         const filters = buildFilters(params as Record<string, unknown>, t.now());
-        const result = await runCanned(dbPath, preset, filters);
+        const result = await runCanned(dbPath, query, filters);
         return formatResult(result);
       }
 
-      const sql = params.sql.trim();
       const result = await guardedQuery(dbPath, sql);
       return formatResult(result);
     },
