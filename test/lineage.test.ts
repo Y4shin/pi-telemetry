@@ -207,14 +207,16 @@ describe("lineage foundation", () => {
   });
 
   it("env-export helper responds with the current env block", async () => {
-    process.env.PI_TELEMETRY_PARENT_SESSION_ID = "export-parent-sess";
-    process.env.PI_TELEMETRY_PARENT_RUN_ID = "export-parent-run";
-    process.env.PI_TELEMETRY_DEPTH = "2";
-    process.env.PI_TELEMETRY_AGENT_LABEL = "exported";
-
     const stub = createL1Stub();
     const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+    registerRunCapture(stub.pi, t);
     registerLineage(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-export"));
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    t.flush();
 
     let response: unknown;
     stub.events.on("pi-telemetry:lineage-env.response", (data: unknown) => {
@@ -225,10 +227,43 @@ describe("lineage foundation", () => {
     t.flush();
 
     assert.deepStrictEqual(response, {
-      PI_TELEMETRY_PARENT_SESSION_ID: "export-parent-sess",
-      PI_TELEMETRY_PARENT_RUN_ID: "export-parent-run",
-      PI_TELEMETRY_DEPTH: 2,
-      PI_TELEMETRY_AGENT_LABEL: "exported",
+      PI_TELEMETRY_PARENT_SESSION_ID: "sess-export",
+      PI_TELEMETRY_PARENT_RUN_ID: t.state.runId,
+      PI_TELEMETRY_DEPTH: 1,
+      PI_TELEMETRY_AGENT_LABEL: null,
+    });
+  });
+
+  it("env-export helper derives depth+1 from inherited lineage", async () => {
+    process.env.PI_TELEMETRY_PARENT_SESSION_ID = "grandparent-sess";
+    process.env.PI_TELEMETRY_PARENT_RUN_ID = "grandparent-run";
+    process.env.PI_TELEMETRY_DEPTH = "2";
+    process.env.PI_TELEMETRY_AGENT_LABEL = "reviewer";
+
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+    registerRunCapture(stub.pi, t);
+    registerLineage(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "fork" }, ctxWithSession("sess-export-depth"));
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    t.flush();
+
+    let response: unknown;
+    stub.events.on("pi-telemetry:lineage-env.response", (data: unknown) => {
+      response = data;
+    });
+
+    stub.events.emit("pi-telemetry:lineage-env.request", {});
+    t.flush();
+
+    assert.deepStrictEqual(response, {
+      PI_TELEMETRY_PARENT_SESSION_ID: "sess-export-depth",
+      PI_TELEMETRY_PARENT_RUN_ID: t.state.runId,
+      PI_TELEMETRY_DEPTH: 3,
+      PI_TELEMETRY_AGENT_LABEL: "reviewer",
     });
   });
 

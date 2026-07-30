@@ -10,10 +10,10 @@ import { guard } from "./state.ts";
  * with an env block shaped like:
  *
  * {
- *   PI_TELEMETRY_PARENT_SESSION_ID: string | null,
- *   PI_TELEMETRY_PARENT_RUN_ID:     string | null,
- *   PI_TELEMETRY_DEPTH:             number | null,
- *   PI_TELEMETRY_AGENT_LABEL:       string | null,
+ *   PI_TELEMETRY_PARENT_SESSION_ID: t.state.sessionId,
+ *   PI_TELEMETRY_PARENT_RUN_ID:     t.state.runId,
+ *   PI_TELEMETRY_DEPTH:             (t.state.lineage.depth ?? 0) + 1,
+ *   PI_TELEMETRY_AGENT_LABEL:       t.state.lineage.agentLabel,
  * }
  */
 const LINEAGE_ENV_REQUEST_EVENT = "pi-telemetry:lineage-env.request";
@@ -45,13 +45,12 @@ export function readLineageFromEnv(
   };
 }
 
-function buildEnvBlock(env: Record<string, string | undefined>) {
-  const lineage = readLineageFromEnv(env);
+function buildEnvBlock(t: Telemetry) {
   return {
-    PI_TELEMETRY_PARENT_SESSION_ID: lineage.parentSessionId,
-    PI_TELEMETRY_PARENT_RUN_ID: lineage.parentRunId,
-    PI_TELEMETRY_DEPTH: lineage.depth,
-    PI_TELEMETRY_AGENT_LABEL: lineage.agentLabel,
+    PI_TELEMETRY_PARENT_SESSION_ID: t.state.sessionId,
+    PI_TELEMETRY_PARENT_RUN_ID: t.state.runId,
+    PI_TELEMETRY_DEPTH: (t.state.lineage.depth ?? 0) + 1,
+    PI_TELEMETRY_AGENT_LABEL: t.state.lineage.agentLabel,
   };
 }
 
@@ -101,7 +100,7 @@ function coerceLineageUpdate(payload: Record<string, unknown>): Partial<LineageS
 export function registerLineage(pi: ExtensionAPI, t: Telemetry): void {
   pi.events.on(LINEAGE_ENV_REQUEST_EVENT, (_req: unknown) => {
     guard(t, () => {
-      pi.events.emit(LINEAGE_ENV_RESPONSE_EVENT, buildEnvBlock(process.env));
+      pi.events.emit(LINEAGE_ENV_RESPONSE_EVENT, buildEnvBlock(t));
     });
   });
 
