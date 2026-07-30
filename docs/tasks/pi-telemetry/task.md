@@ -397,3 +397,31 @@ recorded in `docs/testing.md` during slice 1:
   machines (coherence review to decide: keep as-is, downgrade to warn, or
   run 3-iteration median). Deviation report at
   `docs/tasks/pi-telemetry/deviation-reports/soak-privacy-gate.md`.
+- **coherence-phase fixes (landed 2026-07-30):** final cleanup pass on
+  `task/pi-telemetry`. (1) `src/lineage.ts` env-export helper now derives
+  the response block from runtime state
+  (`PARENT_SESSION_ID = t.state.sessionId`, `PARENT_RUN_ID = t.state.runId`,
+  `DEPTH = (t.state.lineage.depth ?? 0) + 1`, `AGENT_LABEL =
+  t.state.lineage.agentLabel`) instead of re-exporting `process.env`;
+  updated contract comment and `test/lineage.test.ts`. (2)
+  `sessions.pi_version` is populated from the installed
+  `@earendil-works/pi-coding-agent` package.json via new `getPiVersion()`
+  in `src/version.ts`; L1 session tests assert a non-NULL value. (3)
+  `session_start` uses `INSERT OR IGNORE` so resumed sessions preserve
+  the original row instead of producing a swallowed `write_failed` meta
+  row; added L1 resume-conflict test. (4) Orphan `tool_execution_end`
+  (no matching start) is now swallowed with a `telemetry_meta`
+  best-effort note and writes no row, aligning with `llm.ts` orphan
+  policy; dedup for completed calls remains. (5) `query_telemetry` preset
+  parameter now uses `StringEnum` imported from
+  `@earendil-works/pi-ai` with runtime preset validation retained. (6)
+  Trivia: `textLength()` moved to `src/hash.ts` and shared by
+  `src/capture/tools.ts` and `src/capture/bash.ts`; removed the inert
+  `sessionId !== undefined` guard in `src/buffer.ts:recordMeta`;
+  `docs/testing.md` now documents the actual `npm test` glob
+  (`node --test 'test/**/*.test.ts'`). (7) Percentile SQL in
+  `src/query/canned.ts` (`turn_latency`, `ttft_by_model`) reviewed and
+  left unchanged — the window-function CTE semantics match the original
+  correlated-subquery intent. (8) Left untouched per plan:
+  `completedToolCallIds` unbounded growth, dead ids in `InFlightTool`,
+  meta-event reuse, and the soak throughput assertion policy.
