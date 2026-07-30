@@ -117,7 +117,10 @@ plus full session/run/turn context at receipt time.
 
 `telemetry_meta` table: handler errors, DB write failures, buffer drops,
 SQLITE_BUSY retry counts, feedback validation rejections. The rows that tell
-you the telemetry itself is lying.
+you the telemetry itself is lying. `session_id` is attached when the event is
+attributable to a known session, NULL otherwise (deliberately decoupled: it
+must work even when session capture itself is broken), and carries no FK
+constraint for the same reason.
 
 ### Not measured by default
 
@@ -271,11 +274,13 @@ CREATE INDEX IF NOT EXISTS idx_feedback_source ON feedback(source);
 CREATE INDEX IF NOT EXISTS idx_feedback_time   ON feedback(received_unix_ms);
 
 CREATE TABLE IF NOT EXISTS telemetry_meta (
-  id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  unix_ms INTEGER NOT NULL,
-  level   TEXT NOT NULL,           -- warn | error
-  event   TEXT NOT NULL,           -- write_failed|busy_retry|feedback_rejected|handler_error|buffer_drop
-  detail  TEXT
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  unix_ms    INTEGER NOT NULL,
+  level      TEXT NOT NULL,           -- warn | error
+  event      TEXT NOT NULL,           -- write_failed|busy_retry|feedback_rejected|handler_error|buffer_drop
+  detail     TEXT,
+  session_id TEXT                     -- attached when attributable to a known session; NO FK
+                                     -- constraint: meta rows must never fail on missing sessions
 );
 ```
 
@@ -331,7 +336,11 @@ Two complementary mechanisms:
    direction.
 
 v1 ships the foundation: the env-var reader (stamps the `sessions` row at
-startup) and the bus listener. No emitter exists yet — pi-subagents does not
+startup) and the bus listener. Because `agent_runs` has no lineage columns
+(§2), bus-event payloads are recorded on the **`sessions`** row of the
+matching in-process session — the same columns env-var lineage lands on, one
+join from all 8 measurement tables; unknown run ids are a no-op plus a
+`telemetry_meta` note. No emitter exists yet — pi-subagents does not
 emit bus events today — so `parent_*` columns stay NULL in vanilla use, but
 the contract is published and a power user or future orchestrator can opt in
 immediately. `/tm tree` and the `agent_tree` preset ship with v1 (flat trees

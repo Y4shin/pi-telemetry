@@ -1,30 +1,24 @@
 ---
 kind: task
 slug: pi-telemetry
-title: "pi-telemetry — Local-first observability for Pi workflows"
-description: >
-  Build the full v1 pi-telemetry extension from scratch: capture
-  session/agent-run/turn/LLM-request/tool/bash/session-shape/feedback
-  telemetry into one shared ~/.pi/telemetry.db (node:sqlite, WAL, zero
-  runtime deps); query it via /tm commands, the query_telemetry agent
-  tool, and external SQL clients; ship the feedback collector and the
-  lineage foundation. SPEC.md at the repo root is the single source of
-  truth.
-epic:
+title: pi-telemetry — Local-first observability for Pi workflows
+description: |
+  Build the full v1 pi-telemetry extension from scratch: capture session/agent-run/turn/LLM-request/tool/bash/session-shape/feedback telemetry into one shared ~/.pi/telemetry.db (node:sqlite, WAL, zero runtime deps); query it via /tm commands, the query_telemetry agent tool, and external SQL clients; ship the feedback collector and the lineage foundation. SPEC.md at the repo root is the single source of truth.
+epic: null
 slices:
-  - scaffold-write-path
-  - session-run-turn-capture
-  - llm-request-capture
-  - tool-bash-capture
-  - session-events-capture
-  - feedback-collector
-  - lineage-foundation
-  - tm-command-surface
-  - query-telemetry-tool
-  - soak-privacy-gate
-status: slices-planned
-started_at:
-completed_at:
+- scaffold-write-path
+- session-run-turn-capture
+- llm-request-capture
+- tool-bash-capture
+- session-events-capture
+- feedback-collector
+- lineage-foundation
+- tm-command-surface
+- query-telemetry-tool
+- soak-privacy-gate
+status: in-progress
+started_at: null
+completed_at: null
 ---
 
 # pi-telemetry — Local-first observability for Pi workflows
