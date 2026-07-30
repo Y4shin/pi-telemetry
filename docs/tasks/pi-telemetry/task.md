@@ -161,3 +161,25 @@ recorded in `docs/testing.md` during slice 1:
   `telemetry_meta` (coherence review to decide INSERT OR IGNORE);
   `turn_end` without `turn_start` writes a meta row, no orphan
   UPDATE (intended).
+- **session-events-capture (landed 2026-07-30):** capture handlers
+  for SPEC section 1.7 generic `session_events` (one table, type +
+  JSON payload) -- `session_before_compact`/`session_compact` ->
+  `compaction`, `model_select` -> `model_change`,
+  `thinking_level_select` -> `thinking_change`, `session_before_fork`
+  -> `branch`, `session_tree` -> `tree_nav`. Each row has a UUID
+  `event_id`, `session_id`, `unix_ms`, and a JSON payload built only
+  from documented event fields (absent/null omitted, never
+  fabricated); JSON serialization failure is caught, logged to
+  `telemetry_meta`, and the handler continues with an empty payload.
+  11 L1 unit tests green, full suite 35/35, `tsc --noEmit` clean.
+  Divergences from plan: (1) `from_extension` emitted only for
+  `session_compact`, not `session_before_compact` (the Pi
+  `SessionBeforeCompactEvent` type does not expose `fromExtension` --
+  it cannot be known before compaction runs); (2) `model_change`
+  payload uses `from`/`to` objects `{ provider, id }` rather than
+  bare model-id strings for cross-provider query usefulness; (3)
+  `session_before_tree` intentionally not handled -- it is outside
+  the slice's listed event types, left for future work. Note: handler
+  uses contextual typing from `pi.on` overloads since
+  `ModelSelectEvent`/`ThinkingLevelSelectEvent` are not top-level
+  exports of `@earendil-works/pi-coding-agent`.
