@@ -7,12 +7,40 @@ import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../src/db.ts";
 import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createL1Stub } from "./helpers/l1-stub.ts";
 import {
   registerSessionCapture,
   registerRunCapture,
   registerTurnCapture,
 } from "../src/capture/index.ts";
+
+function fakeAssistantMessage(overrides: Partial<AssistantMessage> = {}): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: "hi" }],
+    api: "openai-completions",
+    provider: "test-provider",
+    model: "test-model",
+    usage: {
+      input: 10,
+      output: 5,
+      cacheRead: 2,
+      cacheWrite: 1,
+      totalTokens: 18,
+      cost: {
+        input: 0.001,
+        output: 0.002,
+        cacheRead: 0.0005,
+        cacheWrite: 0.0001,
+        total: 0.0036,
+      },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+    ...overrides,
+  } as AssistantMessage;
+}
 
 function makeConfig(dbPath: string): TelemetryConfig {
   return {
@@ -186,5 +214,148 @@ describe("run capture", () => {
 
     const row2 = db.prepare("SELECT * FROM agent_runs WHERE session_id = ?").get("sess-run") as Record<string, unknown>;
     assert.strictEqual(row2.outcome, "settled");
+  });
+});
+
+describe("turn capture", () => {
+  let tmp: string;
+  let dbPath: string;
+  let db: DatabaseSync;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "pi-telemetry-turns-"));
+    dbPath = join(tmp, "telemetry.db");
+    db = openDatabase(dbPath);
+  });
+
+  afterEach(() => {
+    try {
+      db.close();
+      rmSync(tmp, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  });
+
+  async function setupSessionAndRun(stub: ReturnType<typeof createL1Stub>, t: ReturnType<typeof createBuffer>) {
+    registerSessionCapture(stub.pi, t);
+    registerRunCapture(stub.pi, t);
+    await stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-turn" },
+      cwd: "/tmp/proj",
+    });
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+  }
+
+  it("turn_start inserts a turns row with context_tokens_at_start", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionAndRun(stub, t);
+    registerTurnCapture(stub.pi, t);
+
+    await stub.fire("turn_start", { turnIndex: 0, timestamp: Date.now() }, {
+      getContextUsage: () => ({ tokens: 42, contextWindow: 100000, percent: 0.042 }),
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM turns WHERE session_id = ?").get("sess-turn") as Record<string, unknown>;
+    assert.ok(row, "turns row should exist");
+    assert.strictEqual(row.turn_index, 0);
+    assert.strictEqual(row.context_tokens_at_start, 42);
+    assert.strictEqual(row.run_id, t.state.runId);
+    assert.ok(typeof row.turn_id, "string");
+  });
+
+  it("turn_end writes exact usage and cost fields", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionAndRun(stub, t);
+    registerTurnCapture(stub.pi, t);
+
+    await stub.fire("turn_start", { turnIndex: 0, timestamp: Date.now() }, {
+      getContextUsage: () => ({ tokens: 0, contextWindow: 100000, percent: 0 }),
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    await stub.fire("turn_end", {
+      turnIndex: 0,
+      message: fakeAssistantMessage(),
+      toolResults: [{}, {}],
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM turns WHERE session_id = ?").get("sess-turn") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.provider, "test-provider");
+    assert.strictEqual(row.model, "test-model");
+    assert.strictEqual(row.input_tokens, 10);
+    assert.strictEqual(row.output_tokens, 5);
+    assert.strictEqual(row.cache_read_tokens, 2);
+    assert.strictEqual(row.cache_write_tokens, 1);
+    assert.strictEqual(row.total_tokens, 18);
+    assert.strictEqual(row.cost_input_usd, 0.001);
+    assert.strictEqual(row.cost_output_usd, 0.002);
+    assert.strictEqual(row.cost_cache_read_usd, 0.0005);
+    assert.strictEqual(row.cost_cache_write_usd, 0.0001);
+    assert.strictEqual(row.cost_total_usd, 0.0036);
+    assert.strictEqual(row.stop_reason, "stop");
+    assert.strictEqual(row.tool_result_count, 2);
+    assert.strictEqual(typeof row.duration_ms, "number");
+    assert.ok((row.duration_ms as number) >= 0);
+  });
+
+  it("context_tokens_at_start is sampled at turn_start", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionAndRun(stub, t);
+    registerTurnCapture(stub.pi, t);
+
+    await stub.fire("turn_start", { turnIndex: 0, timestamp: Date.now() }, {
+      getContextUsage: () => ({ tokens: 7, contextWindow: 100000, percent: 0.00007 }),
+    });
+    await stub.fire("turn_end", {
+      turnIndex: 0,
+      message: fakeAssistantMessage(),
+      toolResults: [],
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM turns WHERE session_id = ?").get("sess-turn") as Record<string, unknown>;
+    assert.strictEqual(row.context_tokens_at_start, 7);
+  });
+
+  it("turn_end without matching turn_start does not crash", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionAndRun(stub, t);
+    registerTurnCapture(stub.pi, t);
+
+    await assert.doesNotReject(async () => {
+      await stub.fire("turn_end", {
+        turnIndex: 0,
+        message: fakeAssistantMessage(),
+        toolResults: [],
+      });
+    });
+    t.flush();
+
+    const count = db.prepare("SELECT COUNT(*) AS c FROM turns WHERE session_id = ?").get("sess-turn") as { c: number };
+    assert.strictEqual(count.c, 0);
+    const meta = db.prepare("SELECT * FROM telemetry_meta WHERE session_id = ? AND event = ?").get("sess-turn", "handler_error") as Record<string, unknown> | undefined;
+    assert.ok(meta, "expected meta note for unmatched turn_end");
+  });
+
+  it("getContextUsage throwing leaves context_tokens_at_start NULL", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionAndRun(stub, t);
+    registerTurnCapture(stub.pi, t);
+
+    await stub.fire("turn_start", { turnIndex: 0, timestamp: Date.now() }, {
+      getContextUsage: () => { throw new Error("boom"); },
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM turns WHERE session_id = ?").get("sess-turn") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.context_tokens_at_start, null);
   });
 });
