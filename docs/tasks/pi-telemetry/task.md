@@ -17,7 +17,7 @@ slices:
 - query-telemetry-tool
 - soak-privacy-gate
 status: in-progress
-started_at: null
+started_at: 2026-07-30
 completed_at: null
 ---
 
@@ -121,3 +121,22 @@ recorded in `docs/testing.md` during slice 1:
   tables.
 - **Concurrency:** multi-process writer soak (gated) validating the §3
   design target (~42k commits/s aggregate, 0 busy, 100 writers).
+
+## Implementation notes
+
+- **scaffold-write-path (landed 2026-07-30):** repo scaffold,
+  extension entry, config (SPEC §7 defaults + env overrides + merged
+  settings.json), DB open/pragmas/9-table DDL/`user_version`
+  migrations, buffered write path (threshold/timer/shutdown flush in
+  one `BEGIN…COMMIT`, failure swallowed into `telemetry_meta`), and the
+  two-level test harness. 12/12 tests green, `tsc --noEmit` clean.
+  Divergences from plan: (1) added `@earendil-works/pi-ai` devDep
+  because `pi-coding-agent@0.80.10` does not re-export
+  `createAssistantMessageEventStream` (L2 harness imports
+  `fauxProvider`/`fauxAssistantMessage` directly); (2) L2 harness
+  manually emits `session_start` via `session.extensionRunner` since
+  the SDK does not fire it on initial session creation; (3) `npm test`
+  uses the glob `node --test 'test/**/*.test.ts'`. Capture handlers
+  intentionally deferred to slice 2. Residual risk:
+  `loadMergedSettings()` reads project `settings.json` without a trust
+  gate — revisit for untrusted-project flows.
