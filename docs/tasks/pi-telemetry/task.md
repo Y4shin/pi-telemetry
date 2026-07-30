@@ -425,3 +425,11 @@ recorded in `docs/testing.md` during slice 1:
   correlated-subquery intent. (8) Left untouched per plan:
   `completedToolCallIds` unbounded growth, dead ids in `InFlightTool`,
   meta-event reuse, and the soak throughput assertion policy.
+
+### Architecture lessons (harvested 2026-07-30)
+
+- **SDK event ordering cannot be assumed from event names.** `after_provider_response` fires before the assistant stream starts; buffer per turn instead of keying on "most recent in-flight". Event payloads also lack request ids — correlate via derived signatures.
+- **Test-only slices can force production changes.** The concurrent first-start DDL deadlock only surfaced under real multi-process contention; the fix (BUSY retry, later given full jitter) belongs in `openDatabase` even though the slice was "tests only". Review out-of-scope production changes at coherence instead of blocking mid-chain.
+- **Prefer continuous production telemetry over synthetic load gates.** The 100-writer soak validated the shared-DB design once (~50k rows/s, 0 busy errors) but was retired as unrealistic; the `flush_log` table (row_count + tx_duration_ms per batch flush) now provides the same signal from real usage plus lock-hold-time visibility.
+- **Worker agents resurrect doc claims even after correction.** `createAssistantMessageEventStream` (nonexistent) and "StringEnum not exported" (false) both came from confident worker reports — the pi-ai/pi-coding-agent surface should be verified against installed dist files, not docs or prior prompts.
+- **Privacy posture held by construction:** lengths + SHA-256 sentinel scan across every TEXT column (privacy.test.ts) caught nothing; `flush_log` contains no content columns by design.

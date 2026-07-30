@@ -49,10 +49,32 @@ Uses the real Pi SDK with no API keys:
 
 Use L2 when event-shape fidelity matters (future capture slices) or for full-session gates.
 
+L2 conventions proven during pi-telemetry:
+
+- `after_provider_response` fires BEFORE the assistant `message_start` stream
+  in the real SDK — never assume stream-then-response ordering; buffer per turn.
+- `fauxProvider` computes usage from context length and reports ZERO cost —
+  assert exact token/timing figures in L1 (injected clock `t.now()`), only
+  existence/tolerance in L2.
+- `StringEnum` IS exported from `@earendil-works/pi-ai` (via
+  `export * from "./utils/typebox-helpers.js"`) — despite some helper paths
+  being internal-only.
+- Concurrency: `test/ddl-first-start.test.ts` forks 5 processes via
+  `test/helpers/ddl-worker.ts` and uses a parent-driven ready→start handshake
+  with fail-fast kill + hard timeouts — reuse that pattern for any future
+  multi-process test (a plain fork-and-wait deadlocks if a child dies early).
+
 ## Failure-mode testing
 
 - Simulate DB errors by enqueuing SQL against a non-existent table; assert a `telemetry_meta` row appears and no exception escapes.
 - Use isolated temp directories per test; clean up in `afterEach`.
+
+## Soak policy
+
+Synthetic multi-writer soak tests are retired (user decision 2026-07-30):
+expected load never justifies 100-writer contention tests. Write-load
+visibility in production comes from the `flush_log` table (one row per
+buffer flush: row_count, tx_duration_ms, optional session_id).
 
 ## Environment overrides
 
