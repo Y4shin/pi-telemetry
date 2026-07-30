@@ -349,3 +349,24 @@ recorded in `docs/testing.md` during slice 1:
   though handlers return a string for print/headless mode. Deviation
   report at
   `docs/tasks/pi-telemetry/deviation-reports/tm-command-surface.md`.
+- **query-telemetry-tool (landed 2026-07-30):** SPEC §6.2 agent-facing
+  `query_telemetry` tool — registered as `registerTelemetryTool(pi, t)`
+  in `src/query/tool.ts`, coexists with `submit_feedback` (no collision).
+  7 named presets (`session_cost`, `daily_cost`, `tool_failures`,
+  `feedback`, `ttft_by_model`, `context_growth`, `agent_tree`) reuse
+  slice-8 canned SQL via `runCanned`; raw `sql` escape hatch delegates to
+  `guardedQuery` (read-only by construction, `LIMIT 500` injected, 3s
+  timeout). Both paths are awaited with `dbPath` as first arg per the
+  amended async contract. `Type.String` with runtime validation used for
+  the `query` param (lists valid presets in description + error);
+  `StringEnum` from `@earendil-works/pi-ai` is available for coherence
+  upgrade. Two slice-8 canned queries (`turn_latency`, `ttft_by_model`)
+  were rewritten with window-function CTEs because the original nested
+  correlated subqueries failed in SQLite — percentile semantics preserved
+  (median offset `n/2` → `ROW_NUMBER` at `(n/2)+1`; p95 at
+  `CAST(n*0.95 AS INTEGER)+1`). 17 new tests green, full suite 131/131,
+  `tsc --noEmit` clean. Residual risks: `StringEnum` not used (minor,
+  functional coverage via runtime validation); slice-8 query rewrite
+  should be spot-reviewed at coherence; `state.yaml` was committed by the
+  TDD worker (recurring issue — consider `.gitignore`). Deviation report
+  at `docs/tasks/pi-telemetry/deviation-reports/query-telemetry-tool.md`.
