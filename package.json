@@ -1,0 +1,16 @@
+{
+  "name": "pi-telemetry",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local-first observability extension for Pi",
+  "dependencies": {},
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "typebox": "1.1.38",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "check": "tsc --noEmit"
+  }
+}

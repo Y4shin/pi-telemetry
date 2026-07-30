@@ -1,2 +1,2 @@
-task: null
-slice: null
+task: pi-telemetry
+slice: scaffold-write-path
