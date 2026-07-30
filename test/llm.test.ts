@@ -87,6 +87,160 @@ describe("llm request capture", () => {
     });
   }
 
+  it("leaves ttft_ms and stream_ms NULL for a non-streamed request", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    clock += 75;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.ttft_ms, null);
+    assert.strictEqual(row.stream_ms, null);
+    assert.strictEqual(row.duration_ms, 75);
+    assert.strictEqual(row.input_tokens, 10);
+    assert.strictEqual(row.output_tokens, 5);
+    assert.strictEqual(row.stop_reason, "stop");
+  });
+
+  it("records http_status and retry_after_ms for a 429 response", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    await stub.fire("after_provider_response", { status: 429, headers: { "retry-after": "2" } });
+    clock += 80;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.http_status, 429);
+    assert.strictEqual(row.retry_after_ms, 2000);
+  });
+
+  it("records 429 status when after_provider_response fires before message_start", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("after_provider_response", { status: 429, headers: { "retry-after": "3" } });
+    await stub.fire("message_start", { message: msg });
+    clock += 80;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.http_status, 429);
+    assert.strictEqual(row.retry_after_ms, 3000);
+  });
+
+  it("swallows message_end without matching message_start", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const count = db.prepare("SELECT COUNT(*) AS c FROM llm_requests WHERE session_id = ?").get("sess-llm") as { c: number };
+    assert.strictEqual(count.c, 0);
+  });
+
+  it("does not cross-contaminate interleaved concurrent requests", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msgA = fakeAssistantMessage({ timestamp: 2000, provider: "p-a", model: "m-a" });
+    const msgB = fakeAssistantMessage({ timestamp: 3000, provider: "p-b", model: "m-b" });
+
+    await stub.fire("message_start", { message: msgA });
+    clock += 10;
+    await stub.fire("message_start", { message: msgB });
+    clock += 20;
+    await stub.fire("message_update", { message: msgA, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "a", partial: msgA } });
+    clock += 30;
+    await stub.fire("message_update", { message: msgB, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "b", partial: msgB } });
+    clock += 40;
+    await stub.fire("message_end", { message: msgA });
+    clock += 50;
+    await stub.fire("message_end", { message: msgB });
+    t.flush();
+
+    const rows = db.prepare("SELECT * FROM llm_requests WHERE session_id = ? ORDER BY started_unix_ms").all("sess-llm") as Array<Record<string, unknown>>;
+    assert.strictEqual(rows.length, 2);
+
+    const rowA = rows[0];
+    const rowB = rows[1];
+    assert.strictEqual(rowA.provider, "p-a");
+    assert.strictEqual(rowA.ttft_ms, 30);
+    assert.strictEqual(rowA.stream_ms, 70);
+    assert.strictEqual(rowA.duration_ms, 100);
+
+    assert.strictEqual(rowB.provider, "p-b");
+    assert.strictEqual(rowB.ttft_ms, 50);
+    assert.strictEqual(rowB.stream_ms, 90);
+    assert.strictEqual(rowB.duration_ms, 140);
+  });
+
+  it("records NULL costs when usage is missing", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (msg as any).usage;
+    await stub.fire("message_start", { message: msg });
+    clock += 10;
+    await stub.fire("message_update", { message: msg, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "h", partial: msg } });
+    clock += 20;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.input_tokens, null);
+    assert.strictEqual(row.output_tokens, null);
+    assert.strictEqual(row.cost_total_usd, null);
+    assert.strictEqual(row.duration_ms, 30);
+  });
+
   it("records ttft_ms, stream_ms and duration_ms for a streamed request", async () => {
     const stub = createL1Stub();
     let clock = 1000;
