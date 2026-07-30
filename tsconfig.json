@@ -8,6 +8,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "lib": ["ES2024"],
     "types": ["node"]

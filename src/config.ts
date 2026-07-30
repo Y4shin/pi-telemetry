@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 export interface CaptureConfig {
   toolArgs: boolean;
@@ -32,6 +33,24 @@ const DEFAULTS: TelemetryConfig = {
 function expandPath(p: string): string {
   if (p.startsWith("~/")) return join(homedir(), p.slice(2));
   return p;
+}
+
+export function readSettingsFile(path: string): unknown {
+  try {
+    const text = readFileSync(path, "utf8");
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
+export function loadMergedSettings(cwd: string, agentDir = join(homedir(), ".pi", "agent")): unknown {
+  const global = readSettingsFile(join(agentDir, "settings.json")) as Record<string, unknown> | undefined;
+  const project = readSettingsFile(join(resolve(cwd), ".pi", "settings.json")) as Record<string, unknown> | undefined;
+  return {
+    ...(global ?? {}),
+    ...(project ?? {}),
+  };
 }
 
 export function loadConfig(
