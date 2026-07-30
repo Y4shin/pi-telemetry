@@ -7,9 +7,24 @@ query language, CSV export is the interchange format, and Pi itself is a query
 client via commands and an agent-facing tool.
 
 - **Storage engine:** SQLite via `node:sqlite` (`DatabaseSync`) — zero npm dependencies.
+- **Runtime:** Node with `node:sqlite` (`DatabaseSync`); verified on Node v24.18.0.
 - **Central store:** `~/.pi/telemetry.db` (WAL mode), shared by all Pi processes on the machine.
+  One shared DB is deliberate: cross-session / cross-project correlation is what lets
+  queries answer "what did today cost?" across all work. `dbPath` (§7) is the isolation
+  lever for per-project or per-profile separation; no `scope` setting in v1.
 - **Privacy posture:** no content by default. Lengths + SHA-256 hashes only. Content capture
   flags exist but ship disabled.
+
+---
+
+## Relationship to ObservMe
+
+pi-telemetry is a self-contained, independent alternative to OTLP-based
+observability pipelines (e.g. ObservMe). It does not assume ObservMe or any
+other extension exists or co-runs, and it neither suppresses nor overrides
+other extensions' tools (§5.2). If both pi-telemetry and an OTLP exporter are
+installed, standard Pi events are processed twice — once locally, once
+exported. That is the user's call, not something this spec solves.
 
 ---
 
@@ -283,8 +298,11 @@ CREATE TABLE IF NOT EXISTS telemetry_meta (
   `BEGIN…COMMIT` when either `bufferFlushMs` (default 2000) elapses or
   `bufferMaxRows` (default 50) is reached. Crash loses ≤2s of telemetry —
   acceptable. Flush is synchronous (`DatabaseSync`), microseconds per batch.
-  Measured headroom on target hardware: ~42k commits/s aggregate with 100
-  concurrent writer processes; expected peak load ~100 commits/s.
+  Design target: ~42k commits/s aggregate with 100 concurrent writer
+  processes and 0 busy errors; expected peak load ~100 commits/s. The §9
+  multi-process soak must reproduce this target; no fallback (per-process
+  DB / async write-behind queue) unless the soak shows busy contention or
+  throughput collapse.
 - **Failure handling:** any DB error → row to `telemetry_meta` (best-effort),
   handler swallows it. Telemetry must never break a Pi session. SQLITE_BUSY
   retries counted in `telemetry_meta` as `busy_retry`.
@@ -300,8 +318,10 @@ Two complementary mechanisms:
 1. **Env vars (cross-process).** A launcher spawning a child Pi process sets:
    `PI_TELEMETRY_PARENT_SESSION_ID`, `PI_TELEMETRY_PARENT_RUN_ID`,
    `PI_TELEMETRY_DEPTH`, `PI_TELEMETRY_AGENT_LABEL`. pi-telemetry reads them at
-   startup and stamps its `sessions` row. Same propagation pattern as
-   ObservMe's integration API. pi-telemetry also *exports* these vars for any
+   startup and stamps its `sessions` row. Mirrors ObservMe's env-propagation
+   *pattern* as inspiration only — pi-telemetry defines its own
+   `PI_TELEMETRY_*` contract with no dependency on ObservMe's integration
+   API. pi-telemetry also *exports* these vars for any
    children it learns about, and exposes a helper env block via
    `pi.events` for orchestrators that ask.
 2. **Event bus (in-process).** pi-telemetry listens on
@@ -310,16 +330,23 @@ Two complementary mechanisms:
    depth). Documented payload shape is the only contract; no dependency either
    direction.
 
-Note: pi-subagents does not emit bus events today; a small shim extension (or
-upstream contribution) is phase 2. Phase 1 works without lineage — rows still
-centralize, `parent_*` columns stay NULL.
+v1 ships the foundation: the env-var reader (stamps the `sessions` row at
+startup) and the bus listener. No emitter exists yet — pi-subagents does not
+emit bus events today — so `parent_*` columns stay NULL in vanilla use, but
+the contract is published and a power user or future orchestrator can opt in
+immediately. `/tm tree` and the `agent_tree` preset ship with v1 (flat trees
+until lineage data exists). Phase 2 is the pi-subagents emitter shim (a small
+extension or upstream contribution) only.
 
 ---
 
 ## §5 Feedback collector
 
-Generic structured-feedback intake, replacing the OTLP-based
-`submit_workflow_feedback` pipeline with local storage.
+Generic structured-feedback intake offering a local alternative to the
+OTLP-based `submit_workflow_feedback` pipeline. pi-telemetry does not
+suppress or override the OTLP tool (see "Relationship to ObservMe"); if both
+are registered, the agent sees two feedback tools and chooses by description
+(§5.2).
 
 ### 5.1 Inbound bus event
 
@@ -342,7 +369,11 @@ pi.events.emit("pi-telemetry:submit-feedback", {
   and lineage (agent_label/depth) if present.
 - Trust model: all locally installed extensions are trusted; `source` is
   self-declared, not verified. `pi` is reserved for the tool below by
-  convention, not enforced.
+  convention, not enforced. No separate `origin` column — `source` already
+  distinguishes agent-emitted (`pi`) from extension-emitted (plugin name) in
+  practice.
+- Ordering: no cross-path ordering guarantee between bus and tool inserts;
+  both stamp `received_unix_ms` at receipt and queries order by it.
 
 ### 5.2 Agent-facing tool
 
@@ -360,7 +391,10 @@ pi.registerTool({
 ```
 
 The tool exposes exactly `kind` and `data`; `source` is forced to `"pi"`.
-Same validation/cap as the bus path.
+Same validation/cap as the bus path. Coexistence: if an OTLP
+`submit_workflow_feedback` tool is also registered, the agent sees both;
+this tool's `description` states it records to the **local** telemetry store
+so the choice is intentional. No `promptGuidelines` hard-steering.
 
 ### 5.3 Retrieval
 
@@ -384,14 +418,20 @@ Same validation/cap as the bus path.
 | `feedback [--kind] [--source] [--since]` | Feedback rows, newest first |
 | `tree` | Agent lineage tree for current session family |
 | `export [--table T] [--from] [--to] [--out file.csv]` | CSV dump (all tables default) |
-| `sql "SELECT …"` | Read-only passthrough (SELECT-only guard, statement timeout) |
+| `sql "SELECT …"` | Guarded read-only SQL — same path as §6.2 |
 
 ### 6.2 Agent-facing query tool
 
 `query_telemetry` with `query` (named preset: `session_cost`, `daily_cost`,
 `tool_failures`, `feedback`, `ttft_by_model`, `context_growth`, `agent_tree`)
-plus filter params; or `sql` for read-only SELECT with the same guard.
-Lets the agent answer "what did today cost?" or "which tool fails most?" itself.
+plus filter params. Presets are the agent's primary path; the tool
+description steers there first. The `sql` param is a constrained escape
+hatch: it runs on a **read-only connection** (`DatabaseSync`
+`{readOnly:true}` + `PRAGMA query_only=ON` — writes and schema changes are
+blocked by construction, no regex guard to bypass), injects `LIMIT 500` if
+the query lacks one, caps results at that row limit, and enforces a 3s
+statement timeout against runaway queries. Lets the agent answer "what did
+today cost?" or "which tool fails most?" itself.
 
 ### 6.3 External
 
@@ -407,7 +447,7 @@ under `pi-telemetry`, env-var overrides:
 | Key | Default | Notes |
 |---|---|---|
 | `enabled` | true | |
-| `dbPath` | `~/.pi/telemetry.db` | must be a local filesystem (no NFS) |
+| `dbPath` | `~/.pi/telemetry.db` | must be a local filesystem (no NFS); change for per-project/per-profile isolation — the shared default is deliberate |
 | `bufferFlushMs` | 2000 | |
 | `bufferMaxRows` | 50 | |
 | `feedbackMaxBytes` | 65536 | |
@@ -435,11 +475,13 @@ warning.
 
 - **Unit:** handler → row mapping against in-memory `node:sqlite` with a fake
   Pi event harness (simulated `turn_start`/`turn_end` payloads etc.).
-- **Concurrency:** multi-process writer soak test (basis: measured 42k
-  commits/s, 0 busy errors, 100 writers on target hardware) as a gated
-  regression test.
+- **Concurrency:** multi-process writer soak as a gated regression test
+  validating the §3 design target (~42k commits/s aggregate, 0 busy errors,
+  100 concurrent writer processes).
 - **Bus:** emit `pi-telemetry:submit-feedback` without a listener (no-op),
   with listener (row appears), malformed payload (meta row, no throw).
+- **Lineage:** emit `pi-telemetry:agent.spawned` / `.completed` on the bus
+  and assert lineage stamps on the corresponding rows.
 - **Privacy:** default-config run asserts zero content strings in all tables.
 
 ---

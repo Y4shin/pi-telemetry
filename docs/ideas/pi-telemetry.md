@@ -21,11 +21,10 @@ interchange format, and Pi itself is a query client via commands
 **Privacy:** no content by default — lengths + SHA-256 hashes only; content
 capture flags exist but ship disabled.
 
-> The full, detailed spec lives in `SPEC.md` at the repo root. This doc is the
-> living artifact for the grill-me session: it captures the idea and tracks the
-> open decisions that must be settled before `/skill:create-task` can slice the
-> work. Decisions folded in here supersede any conflicting line in `SPEC.md`
-> until the spec is regenerated.
+> The full, detailed spec lives in `SPEC.md` at the repo root — the single
+> source of truth. All decisions from the grill-me session below have been
+> folded into it (2026-07-28). This doc remains as the decision log and
+> rationale record.
 
 ## Why (stated motivation)
 
