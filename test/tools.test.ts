@@ -153,4 +153,32 @@ describe("tool execution capture", () => {
     assert.strictEqual(rows[0].result_text, null);
     assert.strictEqual(rows[0].args_json, null);
   });
+
+  it("populates args_json and result_text when capture flags are enabled", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(
+      makeConfig(dbPath, { capture: { toolArgs: true, toolResults: true, bashCommand: false } }),
+      db,
+    );
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    await stub.fire("tool_execution_start", {
+      toolCallId: "tc-content",
+      toolName: "read",
+      args: { path: "/tmp/foo" },
+    });
+    await stub.fire("tool_execution_end", {
+      toolCallId: "tc-content",
+      toolName: "read",
+      result: { content: [{ type: "text", text: "file body" }] },
+      isError: false,
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-content") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.args_json, JSON.stringify({ path: "/tmp/foo" }));
+    assert.strictEqual(row.result_text, "file body");
+  });
 });

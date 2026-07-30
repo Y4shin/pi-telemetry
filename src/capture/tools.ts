@@ -142,8 +142,7 @@ function computeResultMetrics(result: unknown, includeText: boolean): StagedResu
   };
 }
 
-function stageResult(toolCallId: string, result: unknown, isError: boolean): void {
-  const includeText = false;
+function stageResult(toolCallId: string, result: unknown, isError: boolean, includeText: boolean): void {
   const metrics = computeResultMetrics(result, includeText);
   metrics.isError = isError;
   metrics.errorClass = isError ? classifyError(result) : null;
@@ -222,7 +221,7 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
       const { sessionId, turnId } = t.state.correlation();
       if (!sessionId || !turnId) return;
 
-      stageResult(event.toolCallId, event.content, event.isError);
+      stageResult(event.toolCallId, event.content, event.isError, t.config.capture.toolResults);
 
       if (!inFlightTools.has(event.toolCallId) && !completedToolCallIds.has(event.toolCallId)) {
         const staged = stagedResults.get(event.toolCallId);
@@ -261,7 +260,7 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
 
       let staged = stagedResults.get(event.toolCallId);
       if (!staged) {
-        stageResult(event.toolCallId, event.result, event.isError);
+        stageResult(event.toolCallId, event.result, event.isError, t.config.capture.toolResults);
         staged = stagedResults.get(event.toolCallId)!;
       }
 
