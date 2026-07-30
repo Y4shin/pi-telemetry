@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openDatabase, MIGRATIONS } from "../src/db.ts";
+import { openDatabase, MIGRATIONS, busyBackoffDelayMs } from "../src/db.ts";
 
 const TABLES = [
   "sessions",
@@ -65,5 +65,43 @@ describe("db", () => {
     };
     assert.strictEqual(version.user_version, MIGRATIONS.length);
     db.close();
+  });
+});
+
+describe("busy backoff delay", () => {
+  it("returns an integer within [0, 50) for the first retry", () => {
+    const delays = new Set<number>();
+    for (let i = 0; i < 50; i++) {
+      const d = busyBackoffDelayMs(0, () => (i + 0.5) / 50);
+      assert.ok(Number.isInteger(d), "delay must be an integer");
+      assert.ok(d >= 0, "delay must be non-negative");
+      assert.ok(d < 50, `delay ${d} must be below first-retry bound 50`);
+      delays.add(d);
+    }
+    assert.strictEqual(delays.size, 50, "deterministic rng produces distinct delays");
+  });
+
+  it("scales the bound exponentially with attempt index", () => {
+    const rng = () => 0.5;
+    assert.strictEqual(busyBackoffDelayMs(0, rng), 25);
+    assert.strictEqual(busyBackoffDelayMs(1, rng), 50);
+    assert.strictEqual(busyBackoffDelayMs(2, rng), 100);
+    assert.strictEqual(busyBackoffDelayMs(8, rng), 6400);
+  });
+
+  it("caps the bound at 50ms * 2^9", () => {
+    const rng = () => 0.5;
+    assert.strictEqual(busyBackoffDelayMs(9, rng), 12800); // 50 * 2^9 / 2
+    assert.strictEqual(busyBackoffDelayMs(20, rng), 12800); // capped
+  });
+
+  it("uses Math.random by default and stays within bounds", () => {
+    for (let i = 0; i < 20; i++) {
+      const d = busyBackoffDelayMs(i);
+      assert.ok(Number.isInteger(d));
+      assert.ok(d >= 0);
+      const bound = Math.min(25600, 50 * Math.pow(2, i));
+      assert.ok(d < bound, `delay ${d} must be below bound ${bound} at attempt ${i}`);
+    }
   });
 });

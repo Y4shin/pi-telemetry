@@ -169,7 +169,24 @@ function syncSleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-export function openDatabase(dbPath: string): DatabaseSync {
+const BUSY_RETRY_CAP_MS = 50 * Math.pow(2, 9);
+
+export function busyBackoffDelayMs(
+  attemptIndex: number,
+  rng: () => number = Math.random,
+): number {
+  const bound = Math.min(BUSY_RETRY_CAP_MS, 50 * Math.pow(2, attemptIndex));
+  return Math.floor(rng() * bound);
+}
+
+export interface OpenDatabaseOptions {
+  rng?: () => number;
+}
+
+export function openDatabase(
+  dbPath: string,
+  options: OpenDatabaseOptions = {},
+): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
 
@@ -199,7 +216,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
       if (!isBusyError(err) || attempt === maxAttempts) {
         throw err;
       }
-      syncSleep(50 * Math.pow(2, attempt - 1));
+      syncSleep(busyBackoffDelayMs(attempt - 1, options.rng));
     }
   }
   return db; // unreachable; satisfies TypeScript.
