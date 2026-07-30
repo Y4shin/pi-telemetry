@@ -144,6 +144,14 @@ CREATE TABLE IF NOT EXISTS telemetry_meta (
   detail     TEXT,
   session_id TEXT
 );
+
+CREATE TABLE IF NOT EXISTS flush_log (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  unix_ms        INTEGER NOT NULL,
+  session_id     TEXT,
+  row_count      INTEGER NOT NULL,
+  tx_duration_ms INTEGER NOT NULL
+);
 `;
 
 export interface Migration {
@@ -157,6 +165,17 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 1,
     description: "initial schema",
     sql: SCHEMA,
+  },
+  {
+    version: 2,
+    description: "add flush_log",
+    sql: `CREATE TABLE IF NOT EXISTS flush_log (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  unix_ms        INTEGER NOT NULL,
+  session_id     TEXT,
+  row_count      INTEGER NOT NULL,
+  tx_duration_ms INTEGER NOT NULL
+);`,
   },
 ];
 

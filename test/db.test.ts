@@ -16,6 +16,7 @@ const TABLES = [
   "session_events",
   "feedback",
   "telemetry_meta",
+  "flush_log",
 ];
 
 describe("db", () => {
@@ -33,7 +34,7 @@ describe("db", () => {
     } catch { /* ignore */ }
   });
 
-  it("creates all 9 tables on open", () => {
+  it("creates all 10 tables on open", () => {
     openDatabase(dbPath);
     const db = new DatabaseSync(dbPath, { readOnly: true });
     const rows = db
@@ -53,7 +54,7 @@ describe("db", () => {
     const count = db
       .prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table'")
       .get() as { c: number };
-    assert.strictEqual(count.c, TABLES.length + 1); // + sqlite_sequence if AUTOINCREMENT used
+    assert.strictEqual(count.c, TABLES.length + 1); // + sqlite_sequence
     db.close();
   });
 
@@ -64,6 +65,37 @@ describe("db", () => {
       user_version: number;
     };
     assert.strictEqual(version.user_version, MIGRATIONS.length);
+    db.close();
+  });
+
+  it("migrates an existing v1 database to v2 by adding flush_log", () => {
+    const v1Db = new DatabaseSync(dbPath);
+    v1Db.exec(`
+      CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE agent_runs (run_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id));
+      CREATE TABLE turns (turn_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(run_id), session_id TEXT NOT NULL, turn_index INTEGER NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE llm_requests (request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE tool_executions (tool_call_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, tool_name TEXT NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE bash_executions (bash_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE session_events (event_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, unix_ms INTEGER NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL);
+      CREATE TABLE feedback (feedback_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, received_unix_ms INTEGER NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE telemetry_meta (id INTEGER PRIMARY KEY AUTOINCREMENT, unix_ms INTEGER NOT NULL, level TEXT NOT NULL, event TEXT NOT NULL, detail TEXT, session_id TEXT);
+      PRAGMA user_version = 1;
+    `);
+    v1Db.close();
+
+    openDatabase(dbPath);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const version = db.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    assert.strictEqual(version.user_version, 2);
+    const hasFlushLog = (
+      db
+        .prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='flush_log'")
+        .get() as { c: number }
+    ).c;
+    assert.strictEqual(hasFlushLog, 1);
     db.close();
   });
 });
