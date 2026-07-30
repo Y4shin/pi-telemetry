@@ -7,12 +7,22 @@ export type MetaEvent =
   | "handler_error"
   | "buffer_drop";
 
+export interface LineageState {
+  parentSessionId: string | null;
+  parentRunId: string | null;
+  depth: number | null;
+  agentLabel: string | null;
+}
+
 export interface RuntimeState {
   sessionId: string | null;
   runId: string | null;
   turnId: string | null;
   turnIndex: number;
   timers: Map<string, number>;
+  lineage: LineageState;
+  stagedPromptChars: number | null;
+  stagedSystemPromptChars: number | null;
   correlation(): {
     sessionId: string | null;
     runId: string | null;
@@ -38,6 +48,14 @@ export function createRuntimeState(): RuntimeState {
     turnId: null,
     turnIndex: 0,
     timers: new Map(),
+    lineage: {
+      parentSessionId: null,
+      parentRunId: null,
+      depth: null,
+      agentLabel: null,
+    },
+    stagedPromptChars: null,
+    stagedSystemPromptChars: null,
     correlation() {
       return {
         sessionId: state.sessionId,
