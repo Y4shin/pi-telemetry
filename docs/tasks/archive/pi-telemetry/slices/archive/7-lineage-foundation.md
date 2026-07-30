@@ -4,11 +4,11 @@ slug: lineage-foundation
 title: "Lineage foundation (env reader + bus listener)"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: s
 blocked_by: [session-run-turn-capture]
 started_at:
-completed_at:
+completed_at: 2026-07-30
 ---
 
 # Lineage foundation

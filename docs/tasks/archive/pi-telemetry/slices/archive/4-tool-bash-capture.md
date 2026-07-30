@@ -4,11 +4,11 @@ slug: tool-bash-capture
 title: "Tool + bash execution capture"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: [session-run-turn-capture]
-started_at:
-completed_at:
+started_at: 2026-07-30
+completed_at: 2026-07-30
 ---
 
 # Tool + bash execution capture

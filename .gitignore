@@ -13,6 +13,9 @@ dist/
 # Pi local state (session/config, observme)
 .pi/
 
+# Subagent runtime artifacts
+.pi-subagents/artifacts/
+
 # Logs
 *.log
 npm-debug.log*

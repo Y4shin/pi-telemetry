@@ -4,11 +4,11 @@ slug: scaffold-write-path
 title: "Scaffold + DB write path"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: []
-started_at:
-completed_at:
+started_at: 2026-07-30
+completed_at: 2026-07-30
 ---
 
 # Scaffold + DB write path

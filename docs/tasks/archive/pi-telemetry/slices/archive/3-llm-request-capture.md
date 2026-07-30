@@ -4,11 +4,11 @@ slug: llm-request-capture
 title: "LLM request capture (streaming metrics)"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: [session-run-turn-capture]
-started_at:
-completed_at:
+started_at: 2026-07-30
+completed_at: 2026-07-30
 ---
 
 # LLM request capture (streaming metrics)

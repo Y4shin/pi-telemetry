@@ -4,11 +4,11 @@ slug: feedback-collector
 title: "Feedback collector (bus + submit_feedback tool)"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: [scaffold-write-path]
-started_at:
-completed_at:
+started_at: 2026-07-30
+completed_at: 2026-07-30
 ---
 
 # Feedback collector

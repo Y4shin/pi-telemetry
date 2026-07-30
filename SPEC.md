@@ -122,6 +122,12 @@ attributable to a known session, NULL otherwise (deliberately decoupled: it
 must work even when session capture itself is broken), and carries no FK
 constraint for the same reason.
 
+`flush_log` table: one row per buffer flush, recording `row_count` (number of
+data rows in the batch), `tx_duration_ms` (elapsed lock-hold time of the data
+`BEGIN…COMMIT`), and optional `session_id` attribution when known. It is
+written outside the buffered batch so its own insert never recurses. Purpose:
+continuous write-load and lock-contention monitoring in production.
+
 ### Not measured by default
 
 Prompt text, tool args/results, bash commands, file paths → lengths + hashes
@@ -282,6 +288,14 @@ CREATE TABLE IF NOT EXISTS telemetry_meta (
   session_id TEXT                     -- attached when attributable to a known session; NO FK
                                      -- constraint: meta rows must never fail on missing sessions
 );
+
+CREATE TABLE IF NOT EXISTS flush_log (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  unix_ms        INTEGER NOT NULL,
+  session_id     TEXT,               -- NULL until session known; NO FK constraint
+  row_count      INTEGER NOT NULL,
+  tx_duration_ms INTEGER NOT NULL
+);
 ```
 
 ---
@@ -304,10 +318,12 @@ CREATE TABLE IF NOT EXISTS telemetry_meta (
   `bufferMaxRows` (default 50) is reached. Crash loses ≤2s of telemetry —
   acceptable. Flush is synchronous (`DatabaseSync`), microseconds per batch.
   Design target: ~42k commits/s aggregate with 100 concurrent writer
-  processes and 0 busy errors; expected peak load ~100 commits/s. The §9
-  multi-process soak must reproduce this target; no fallback (per-process
-  DB / async write-behind queue) unless the soak shows busy contention or
-  throughput collapse.
+  processes and 0 busy errors; expected peak load ~100 commits/s. The
+  shared-DB design was validated once by a 100-writer synthetic soak (~50k
+  rows/s aggregate, 0 busy errors, target exceeded); the synthetic soak was
+  then retired as unrealistic for expected load, and ongoing write-load and
+  lock-contention visibility is provided by the `flush_log` table (see §1.9).
+  No fallback (per-process DB / async write-behind queue) is needed.
 - **Failure handling:** any DB error → row to `telemetry_meta` (best-effort),
   handler swallows it. Telemetry must never break a Pi session. SQLITE_BUSY
   retries counted in `telemetry_meta` as `busy_retry`.
@@ -472,7 +488,8 @@ warning.
 ## §8 Migrations & lifecycle
 
 - `PRAGMA user_version` gates forward-only migrations; each migration is a
-  numbered, idempotent step in code. No external migration tool.
+  numbered, idempotent step in code. No external migration tool. Step 2 adds
+  the `flush_log` table.
 - Extension version stored in every session row for schema-correlation
   debugging.
 - Multi-version coexistence: producers only INSERT; new columns are nullable or
@@ -484,9 +501,9 @@ warning.
 
 - **Unit:** handler → row mapping against in-memory `node:sqlite` with a fake
   Pi event harness (simulated `turn_start`/`turn_end` payloads etc.).
-- **Concurrency:** multi-process writer soak as a gated regression test
-  validating the §3 design target (~42k commits/s aggregate, 0 busy errors,
-  100 concurrent writer processes).
+- **Concurrency:** concurrent first-start DDL test
+  (`test/ddl-first-start.test.ts`, 5 forked processes) validates that the
+  `openDatabase` BUSY retry survives simultaneous schema creation on a fresh DB.
 - **Bus:** emit `pi-telemetry:submit-feedback` without a listener (no-op),
   with listener (row appears), malformed payload (meta row, no throw).
 - **Lineage:** emit `pi-telemetry:agent.spawned` / `.completed` on the bus

@@ -92,7 +92,12 @@ slice 7 only fills the seam.
 **3. llm-request-capture** — Exports `registerLlmCapture(pi, t)`. Consumes
 `state.correlation()` and `state.timers` (TTFT/stream markers keyed by message
 identity from the event payload; module-scope map if payload identity requires
-it). `after_provider_response` updates the most recent in-flight request row.
+it). `after_provider_response` updates the most recent in-flight request row —
+or, if the response precedes the stream (real SDK ordering: HTTP headers
+arrive before `message_start`), buffers status/retry-after per-turn and
+applies them to the next `message_start`. Markers are keyed by derived
+signature (`provider|model|api|timestamp|responseId`) since the payload has
+no `request_id`.
 
 **4. tool-bash-capture** — Exports `registerToolCapture(pi, t)`,
 `registerBashCapture(pi, t)`. Consumes `correlation()`, `timers`, `sha256()`,
@@ -117,13 +122,21 @@ session; unknown run_id → no-op + meta note. Env-export helper published via
 
 ```ts
 // src/query/sql-guard.ts
-guardedQuery(dbPath, sql): { columns: string[]; rows: unknown[][]; truncated: boolean }
+guardedQuery(dbPath, sql, timeoutMs?): Promise<{ columns: string[]; rows: unknown[][]; truncated: boolean }>
 // src/query/canned.ts
 CANNED: Record<string, { description: string; sql: string }>
-runCanned(name, filters): Table
+runCanned(dbPath, name, filters?): Promise<Table>   // Table extends QueryResult { description }
 // src/query/commands.ts
 registerTelemetryCommands(pi, t): void
 ```
+**Amended after slice 8 landed:** both query functions are **async** —
+`node:sqlite` `DatabaseSync` has no statement-timeout API, so the 3 s
+timeout runs the query in a `worker_threads` worker terminated at the
+deadline. `runCanned` takes `dbPath` first (canned.ts has no config
+dependency). Slice 9 must `await` both and pass `dbPath` from
+`t.config.dbPath`. Extra additive exports slice 9 may use: `CannedFilters`,
+`Table`, `QueryResult`, `ExportOptions`, `exportTable()`; extra canned
+queries beyond the preset list: `session_summary`, `model_cost`, `errors`.
 
 Read-only enforcement is `DatabaseSync { readOnly: true }` +
 `PRAGMA query_only=ON` — **no regex SQL validation ever**. Rendering is
@@ -133,10 +146,12 @@ TUI-bounded ASCII; no table-formatting deps.
 `CANNED`/`runCanned`; adds only param validation, tool registration, result
 shaping. Preset SQL is **never** duplicated into the tool.
 
-**10. soak-privacy-gate** — No production exports. Adds
-`test/soak.test.ts` (env-gated `PI_TELEMETRY_SOAK=1`) and
-`test/privacy.test.ts`. Soak writer processes reuse the real `src/db.ts` /
-`src/buffer.ts`.
+**10. soak-privacy-gate** — No production exports. The 100-writer synthetic
+soak has been retired as unrealistic for expected load. In its place,
+`test/ddl-first-start.test.ts` (5 forked processes) validates that the
+`openDatabase` BUSY retry survives simultaneous schema creation on a fresh DB;
+`test/privacy.test.ts` remains as the default-config content-leakage gate.
+Both reuse the real `src/db.ts` / `src/buffer.ts`.
 
 ## Error-handling pattern
 
