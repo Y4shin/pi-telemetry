@@ -172,4 +172,30 @@ describe("bash execution capture", () => {
     const row = rows[rows.length - 1];
     assert.strictEqual(row.exit_code, null);
   });
+
+  it("records cancelled when the abort signal fires", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerBashCapture(stub.pi, t);
+
+    const result = await stub.fire<UserBashEventResult>("user_bash", {
+      command: "sleep 10",
+      excludeFromContext: false,
+      cwd: tmp,
+    });
+    const ops = result!.operations as BashOperations;
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(async () => {
+      await ops.exec("sleep 10", tmp, { onData: () => {}, signal: controller.signal });
+    });
+    t.flush();
+
+    const rows = db.prepare("SELECT * FROM bash_executions WHERE session_id = ?").all("sess-bash") as Array<Record<string, unknown>>;
+    const cancelledRow = rows.find((r) => r.cancelled === 1);
+    assert.ok(cancelledRow, "expected a cancelled row");
+  });
 });

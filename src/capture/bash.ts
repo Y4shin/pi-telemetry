@@ -68,7 +68,7 @@ export function registerBashCapture(pi: ExtensionAPI, t: Telemetry): void {
           let outputBytes = 0;
           let outputLines = 0;
           let endsWithNewline = true;
-          let cancelled = false;
+          let cancelled = options.signal?.aborted ?? false;
 
           const onAbort = () => {
             cancelled = true;
