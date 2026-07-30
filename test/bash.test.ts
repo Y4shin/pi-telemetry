@@ -87,4 +87,89 @@ describe("bash execution capture", () => {
     assert.strictEqual(typeof row.output_chars, "number");
     assert.ok((row.output_chars as number) > 0);
   });
+
+  it("records exit_code for a failing command", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerBashCapture(stub.pi, t);
+
+    const result = await stub.fire<UserBashEventResult>("user_bash", {
+      command: "exit 7",
+      excludeFromContext: false,
+      cwd: tmp,
+    });
+    const ops = result!.operations as BashOperations;
+    const execResult = await ops.exec("exit 7", tmp, { onData: () => {} });
+    t.flush();
+
+    assert.strictEqual(execResult.exitCode, 7);
+    const row = db.prepare("SELECT * FROM bash_executions WHERE session_id = ?").get("sess-bash") as Record<string, unknown>;
+    assert.strictEqual(row.exit_code, 7);
+    assert.strictEqual(row.cancelled, 0);
+    assert.strictEqual(row.truncated, 0);
+  });
+
+  it("marks exclude_from_context for !! prefix commands", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerBashCapture(stub.pi, t);
+
+    const result = await stub.fire<UserBashEventResult>("user_bash", {
+      command: "echo secret",
+      excludeFromContext: true,
+      cwd: tmp,
+    });
+    const ops = result!.operations as BashOperations;
+    await ops.exec("echo secret", tmp, { onData: () => {} });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM bash_executions WHERE session_id = ?").get("sess-bash") as Record<string, unknown>;
+    assert.strictEqual(row.exclude_from_context, 1);
+  });
+
+  it("marks truncated for oversized output", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerBashCapture(stub.pi, t);
+
+    const result = await stub.fire<UserBashEventResult>("user_bash", {
+      command: "big",
+      excludeFromContext: false,
+      cwd: tmp,
+    });
+    const ops = result!.operations as BashOperations;
+    await ops.exec(`node -e "process.stdout.write('x'.repeat(60000))"`, tmp, { onData: () => {} });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM bash_executions WHERE session_id = ?").get("sess-bash") as Record<string, unknown>;
+    assert.strictEqual(row.truncated, 1);
+    assert.ok((row.output_chars as number) >= 60000);
+  });
+
+  it("rethrows and records best-effort row when exec throws", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerBashCapture(stub.pi, t);
+
+    const result = await stub.fire<UserBashEventResult>("user_bash", {
+      command: "echo hi",
+      excludeFromContext: false,
+      cwd: tmp,
+    });
+    const ops = result!.operations as BashOperations;
+
+    await assert.rejects(async () => {
+      await ops.exec("echo hi", "/nonexistent/cwd/12345", { onData: () => {} });
+    });
+    t.flush();
+
+    const rows = db.prepare("SELECT * FROM bash_executions WHERE session_id = ?").all("sess-bash") as Array<Record<string, unknown>>;
+    assert.ok(rows.length > 0, "expected best-effort row");
+    const row = rows[rows.length - 1];
+    assert.strictEqual(row.exit_code, null);
+  });
 });
