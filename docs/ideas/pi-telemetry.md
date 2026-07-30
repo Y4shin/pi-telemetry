@@ -2,10 +2,10 @@
 kind: idea
 title: "pi-telemetry — Local-first observability for Pi workflows"
 slug: pi-telemetry
-status: ready
+status: converted
 created_at: 2026-07-28T18:17:29Z
 grilled_at: 2026-07-28T18:51:56Z
-converted_to:
+converted_to: pi-telemetry
 ---
 
 # pi-telemetry — Local-first observability for Pi workflows
