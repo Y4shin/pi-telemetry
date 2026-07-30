@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Local-first observability extension for Pi",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.80.10",
     "@earendil-works/pi-coding-agent": "^0.80.0",
