@@ -9,7 +9,7 @@ import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
-import { registerSessionCapture } from "../src/capture/index.ts";
+import { registerSessionCapture, registerRunCapture } from "../src/capture/index.ts";
 import { registerLineage } from "../src/lineage.ts";
 
 function makeConfig(dbPath: string): TelemetryConfig {
@@ -85,5 +85,38 @@ describe("lineage foundation", () => {
     assert.strictEqual(row.parent_run_id, "parent-run-1");
     assert.strictEqual(row.depth, 3);
     assert.strictEqual(row.agent_label, "reviewer");
+  });
+
+  it("agent.spawned stamps the sessions row for the matching run_id", async () => {
+    process.env.PI_TELEMETRY_PARENT_SESSION_ID = "parent-sess-2";
+
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    registerSessionCapture(stub.pi, t);
+    registerRunCapture(stub.pi, t);
+    registerLineage(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-spawn-1"));
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    const runId = t.state.runId;
+    assert.ok(runId);
+
+    stub.events.emit("pi-telemetry:agent.spawned", {
+      run_id: runId,
+      parent_session_id: "spawned-parent-sess",
+      parent_run_id: "spawned-parent-run",
+      depth: 5,
+      agent_label: "spawner",
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("sess-spawn-1") as Record<string, unknown>;
+    assert.ok(row);
+    // env var lineage from startup stays on parent_session_id
+    assert.strictEqual(row.parent_session_id, "spawned-parent-sess");
+    assert.strictEqual(row.parent_run_id, "spawned-parent-run");
+    assert.strictEqual(row.depth, 5);
+    assert.strictEqual(row.agent_label, "spawner");
   });
 });

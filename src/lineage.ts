@@ -68,7 +68,34 @@ function isValidLineagePayload(payload: unknown): payload is Record<string, unkn
 }
 
 function coerceLineageUpdate(payload: Record<string, unknown>): Partial<LineageState> {
-  return {};
+  const update: Partial<LineageState> = {};
+
+  const parentSessionId = payload.parent_session_id;
+  if (typeof parentSessionId === "string") {
+    update.parentSessionId = parentSessionId;
+  }
+
+  const parentRunId = payload.parent_run_id;
+  if (typeof parentRunId === "string") {
+    update.parentRunId = parentRunId;
+  }
+
+  const depthRaw = payload.depth;
+  if (typeof depthRaw === "number" && Number.isInteger(depthRaw)) {
+    update.depth = depthRaw;
+  } else if (typeof depthRaw === "string") {
+    const n = Number(depthRaw);
+    if (Number.isInteger(n)) {
+      update.depth = n;
+    }
+  }
+
+  const agentLabel = payload.agent_label;
+  if (typeof agentLabel === "string") {
+    update.agentLabel = agentLabel;
+  }
+
+  return update;
 }
 
 export function registerLineage(pi: ExtensionAPI, t: Telemetry): void {
@@ -89,6 +116,39 @@ export function registerLineage(pi: ExtensionAPI, t: Telemetry): void {
         t.meta("warn", "handler_error", `lineage: unknown run_id in ${eventName}: ${runId}`);
         return;
       }
+
+      const sessionId = t.state.sessionId;
+      if (!sessionId) {
+        t.meta("warn", "handler_error", `lineage: ${eventName} with no active session`);
+        return;
+      }
+
+      const update = coerceLineageUpdate(payload);
+      const sets: string[] = [];
+      const values: (string | number | null)[] = [];
+      if (update.parentSessionId !== undefined) {
+        sets.push("parent_session_id = ?");
+        values.push(update.parentSessionId);
+      }
+      if (update.parentRunId !== undefined) {
+        sets.push("parent_run_id = ?");
+        values.push(update.parentRunId);
+      }
+      if (update.depth !== undefined) {
+        sets.push("depth = ?");
+        values.push(update.depth);
+      }
+      if (update.agentLabel !== undefined) {
+        sets.push("agent_label = ?");
+        values.push(update.agentLabel);
+      }
+      if (sets.length === 0) return;
+
+      values.push(sessionId);
+      t.enqueue(
+        `UPDATE sessions SET ${sets.join(", ")} WHERE session_id = ?`,
+        values,
+      );
     });
   }
 
