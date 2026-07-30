@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { runCanned, type CannedFilters, type Table } from "./canned.ts";
@@ -76,7 +77,7 @@ export function registerTelemetryTool(pi: ExtensionAPI, t: Telemetry): void {
       "Query the local pi-telemetry database. Use named presets (query) first: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree. Optional filters: since, model, kind, source, session, tool. For custom analysis, supply raw sql as a SELECT statement (read-only, LIMIT 500 injected, 3s timeout).",
     parameters: Type.Object({
       query: Type.Optional(
-        Type.String({
+        StringEnum(PRESET_NAMES, {
           description:
             "Named preset. Valid: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree",
         }),
