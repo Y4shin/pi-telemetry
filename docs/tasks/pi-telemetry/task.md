@@ -214,8 +214,40 @@ recorded in `docs/testing.md` during slice 1:
   has no session context; (4) `data: null`/`undefined` rejected as
   `feedback_rejected` (SPEC silent on nulls; defensive reading);
   (5) extra exports `validateAndSerialize`/`handleFeedback` are
-  additive test seams, not consumed elsewhere. Residual risks:
+        additive test seams, not consumed elsewhere. Residual risks:
   `submit_feedback` stays registered if telemetry is disabled at
   `session_start` (calls silently produce no rows); the tool
   intentionally cannot distinguish "stored" from "failed to store"
   from the agent's perspective.
+- **llm-request-capture (landed 2026-07-30):** capture handler for
+  SPEC section 1.4 `llm_requests` -- assistant `message_start`
+  INSERTs a `llm_requests` row (derived `request_id` signature
+  `provider|model|api|timestamp|responseId`, turn/run/session IDs from
+  runtime state) and records an in-memory TTFT start marker keyed per
+  request; first `message_update` computes `ttft_ms`; `message_end`
+  UPDATEs `stream_ms`, `duration_ms`, usage + cost breakdown and
+  `stop_reason`; `after_provider_response` records
+  `http_status`/`retry_after_ms`. TTFT/stream durations use the
+  injectable `t.now()` clock, so L1 asserts exact figures with no
+  wall-clock flakiness. Rows with no `message_update` keep
+  `ttft_ms`/`stream_ms` NULL but record `duration_ms`; interleaved
+  concurrent streams stay uncontaminated (marker keyed per request).
+  7 new tests green, full suite 53/53, `tsc --noEmit` clean.
+  Divergences from plan: (1) `after_provider_response` actually fires
+  *before* `message_start` in the real SDK (headers arrive before
+  the first stream event), so the handler buffers status/retry-after
+  for the turn when no in-flight request exists yet and applies it to
+  the next `message_start`; if an in-flight row exists it updates it
+  directly; (2) no stable `request_id` in the event payload, so a
+  derived signature keys in-flight markers (`responseId` included
+  when providers set it); (3) no dedicated L2 429 test -- simulating
+  a 429 through the faux provider needs a custom transport shim, out
+  of slice scope; 429 path fully covered in L1, and the L2 test now
+  asserts a normal streamed prompt produces a correlated
+  `llm_requests` row. Residual risks: the four message/provider event
+  types are not top-level exports of `@earendil-works/pi-coding-agent`
+  (handler relies on contextual typing from `ExtensionAPI["on"]`
+  overloads -- an SDK overload change could break typing silently);
+  the ordering-buffer logic depends on current SDK event ordering. A
+  deviation report is at
+  `docs/tasks/pi-telemetry/deviation-reports/llm-request-capture.md`.
