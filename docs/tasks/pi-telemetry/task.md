@@ -325,3 +325,27 @@ recorded in `docs/testing.md` during slice 1:
   `test/lineage.test.ts` must also be updated to assert the derived
   block. Deviation report at
   `docs/tasks/pi-telemetry/deviation-reports/lineage-foundation.md`.
+- **tm-command-surface (landed 2026-07-30):** SPEC §6.1 human-facing
+  `/telemetry` (alias `/tm`) command surface — 8 subcommands (`status`,
+  `session`, `cost`, `errors`, `feedback`, `tree`, `export`, `sql`),
+  guarded read-only SQL path (`query_only=ON`, `LIMIT 500` injection,
+  3s timeout via worker-thread termination), named canned SQL for all
+  SPEC §1 derived metrics, and CSV export. 37 new tests green (4 query
+  suites), full suite 114/114, `tsc --noEmit` clean. **Divergences from
+  plan:** (1) `guardedQuery` and `runCanned` are **async** (`Promise`)
+  because the timeout requires `node:worker_threads` termination;
+  `runCanned` takes `dbPath` as first arg (no config dependency). Slice
+  9 (`query-telemetry-tool`) must `await` both and pass `dbPath` from
+  `t.config.dbPath`. (2) `export` requires `--out` (safety — prevents
+  writes into cwd unexpectedly). (3) `status` shows buffer config
+  (`flushMs`/`maxRows`) rather than pending count — the `Telemetry`
+  interface does not expose an in-memory pending count. (4) `tree`
+  filters to current session only (v1 has no lineage emitter). (5)
+  `session` renders 18-column `session_summary` as key/value pairs
+  rather than a single wide table. (6) Extra canned queries
+  (`session_summary`, `model_cost`, `errors`) serve the command surface
+  and are available to slice 9. (7) Command handler cast to
+  `Promise<void>` because Pi's `registerCommand` types it as void,
+  though handlers return a string for print/headless mode. Deviation
+  report at
+  `docs/tasks/pi-telemetry/deviation-reports/tm-command-surface.md`.

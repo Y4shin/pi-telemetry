@@ -1,3 +1,2 @@
 task: pi-telemetry
-slice: null
-last_landed: lineage-foundation
+slice: tm-command-surface
