@@ -4,7 +4,7 @@ slug: duplicate-key-resilience
 title: "Buffer poison resilience + natural-key idempotency"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: l
 blocked_by: []
 started_at: 2026-07-31
