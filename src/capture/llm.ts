@@ -72,7 +72,7 @@ export function registerLlmCapture(pi: ExtensionAPI, t: Telemetry): void {
       inFlightRequests.set(signature, inFlight);
 
       t.enqueue(
-        `INSERT INTO llm_requests (
+        `INSERT OR IGNORE INTO llm_requests (
           request_id, turn_id, run_id, session_id, provider, model,
           started_unix_ms, ttft_ms, stream_ms, duration_ms,
           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,

@@ -59,7 +59,7 @@ function insertFeedback(
 ): void {
   const { sessionId, runId, turnIndex } = t.state.correlation();
   t.enqueue(
-    `INSERT INTO feedback (
+    `INSERT OR IGNORE INTO feedback (
       feedback_id, session_id, run_id, turn_index, received_unix_ms,
       source, kind, data
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

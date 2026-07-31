@@ -27,7 +27,7 @@ function recordBashExecution(
   if (!sessionId) return;
 
   t.enqueue(
-    `INSERT INTO bash_executions (
+    `INSERT OR IGNORE INTO bash_executions (
       bash_id, session_id, cwd, started_unix_ms, duration_ms, exit_code,
       cancelled, truncated, output_chars, exclude_from_context, command_chars,
       command_hash
