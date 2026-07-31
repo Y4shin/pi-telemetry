@@ -1,10 +1,10 @@
 ---
 title: tool_executions INSERT fails UNIQUE on tool_call_id (duplicate inserts)
-status: promoted
+status: fixed
 severity: major
 reported: 2026-07-31
 confirmed_by: L1 repro 2026-07-31
-fix_commit:
+fix_commit: 0402641befd01c26126430909118a29fa7d11b36
 promoted_to: telemetry-write-resilience
 ---
 
@@ -116,5 +116,28 @@ duplicate `tool_execution_end` → single row). The gap is purely
 
 ## Fix summary
 
-_To be filled after the fix (promoted to task
-`telemetry-write-resilience`, slice `duplicate-key-resilience`)._
+Fixed in task `telemetry-write-resilience`, slice `duplicate-key-resilience`
+(commit `0402641`). Both intertwined defects addressed:
+
+1. **Buffer flush resilience (`src/buffer.ts`)** — `flush()` keeps the
+   fast-path batched transaction, but on failure now rolls back and applies
+   each statement individually (`applyOne`). Healthy rows commit;
+   offending rows are logged to `telemetry_meta` (`event='write_failed'`)
+   and **dropped — never re-enqueued**. A single failing statement can no
+   longer poison unrelated rows or retry forever.
+
+2. **Natural-key idempotency (`src/capture/*`, `src/feedback.ts`)** — all
+   natural-key INSERTs now use `INSERT OR IGNORE` (≡
+   `ON CONFLICT(<pk>) DO NOTHING`), so a replayed key from a resumed
+   session no-ops instead of raising UNIQUE. The in-memory dedup in
+   `tools.ts` stays as a fast path but is no longer the only defense.
+
+**Regression test:** `test/duplicate-key-resilience.test.ts` (4 tests) —
+replayed `tool_call_id` does not poison the batch; buffer isolates an
+unrecoverable statement; replayed `session_start` is idempotent; SQL audit
+that every capture INSERT is `INSERT OR IGNORE`. Validation: `npm run check`
+clean; full `npm test` 150 pass / 0 fail (was 146).
+
+**Tradeoff:** `INSERT OR IGNORE` silently drops a genuinely-different row
+that reuses a key; with UUID keys this is effectively impossible, and the
+tradeoff (drop vs total session loss) favors idempotency.
