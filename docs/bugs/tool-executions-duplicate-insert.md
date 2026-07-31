@@ -1,9 +1,9 @@
 ---
 title: tool_executions INSERT fails UNIQUE on tool_call_id (duplicate inserts)
-status: reported
+status: confirmed
 severity: major
 reported: 2026-07-31
-confirmed_by:
+confirmed_by: L1 repro 2026-07-31
 fix_commit:
 promoted_to:
 ---
@@ -81,8 +81,38 @@ after a committed flush, causing re-insert on a subsequent flush).
 
 ## Root cause
 
-_To be filled during reproduction/triage._
+**Two intertwined defects, both reproduced.**
+
+### Defect 1 — buffer catastrophe (`src/buffer.ts`)
+
+`flush()` wraps the whole batch in one transaction and, on ANY statement
+error, re-enqueues the ENTIRE batch via `buffer.unshift(...batch)`. A single
+duplicate `tool_call_id` INSERT (PK `UNIQUE` violation) rolls back **all**
+statements in the batch — including the unrelated `session`/`run`/`turn`/
+other-tool rows — and the batch is retried on every subsequent flush,
+failing the same way forever. `recordMeta` writes via its own transaction,
+so the errors log even while the main buffer is permanently stuck.
+Everything enqueued after the poison is lost on session close.
+
+Live-DB proof: the 3 affected sessions have **0** rows in `tool_executions`,
+`turns`, `llm_requests`, `session_events`, AND `sessions` — only
+`telemetry_meta` survived. `flush_log` has no rows for them. Total data
+loss.
+
+### Defect 2 — duplicate source (`src/capture/tools.ts`)
+
+The insert dedup is module-level in-memory (`inFlightTools`,
+`stagedResults`, `completedToolCallIds`) and does NOT survive across
+processes. When a session is resumed/replayed in a fresh process (e.g. pi
+restart resuming a session and replaying already-executed tool calls),
+already-recorded `tool_call_id`s are re-emitted; the empty
+`completedToolCallIds` lets the INSERT through, colliding with the
+prior-process row — the poison that triggers Defect 1.
+
+The within-process dedup is correct (covered by `test/tools.test.ts`:
+duplicate `tool_execution_end` → single row). The gap is purely
+ cross-process / replay.
 
 ## Fix summary
 
-_To be filled after the fix._
+_To be filled after the fix (promoted to a task; see `promoted_to`)._
