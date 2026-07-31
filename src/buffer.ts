@@ -119,8 +119,6 @@ export function createBuffer(
       } catch {
         /* ignore */
       }
-      const detail = err instanceof Error ? err.message : String(err);
-      recordMeta("warn", "buffer_batch_failed", detail);
       let committed = 0;
       for (const stmt of batch) {
         if (applyOne(stmt)) {
