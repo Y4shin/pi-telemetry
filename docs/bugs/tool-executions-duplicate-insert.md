@@ -1,11 +1,11 @@
 ---
 title: tool_executions INSERT fails UNIQUE on tool_call_id (duplicate inserts)
-status: confirmed
+status: promoted
 severity: major
 reported: 2026-07-31
 confirmed_by: L1 repro 2026-07-31
 fix_commit:
-promoted_to:
+promoted_to: telemetry-write-resilience
 ---
 
 # tool_executions INSERT fails UNIQUE on tool_call_id (duplicate inserts)
@@ -71,7 +71,8 @@ print(pd.read_sql_query(
 3. **L2 SDK session** — drive a tool call through `test/helpers/l2-session.ts`
    with `fauxProvider` and confirm no `write_failed` row appears.
 
-See `repro.md` for the exact scripts and the root-cause trace.
+See `docs/tasks/telemetry-write-resilience/repro.md` for the exact scripts
+and the root-cause trace (moved next to the task on promotion).
 
 ## Suspected area
 
@@ -115,4 +116,5 @@ duplicate `tool_execution_end` → single row). The gap is purely
 
 ## Fix summary
 
-_To be filled after the fix (promoted to a task; see `promoted_to`)._
+_To be filled after the fix (promoted to task
+`telemetry-write-resilience`, slice `duplicate-key-resilience`)._

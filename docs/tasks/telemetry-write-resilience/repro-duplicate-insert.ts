@@ -14,17 +14,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../../src/db.ts";
-import { createBuffer } from "../../src/buffer.ts";
-import type { TelemetryConfig } from "../../src/config.ts";
+import { openDatabase } from "../../../src/db.ts";
+import { createBuffer } from "../../../src/buffer.ts";
+import type { TelemetryConfig } from "../../../src/config.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createL1Stub } from "../../test/helpers/l1-stub.ts";
+import { createL1Stub } from "../../../test/helpers/l1-stub.ts";
 import {
   registerSessionCapture,
   registerRunCapture,
   registerTurnCapture,
   registerToolCapture,
-} from "../../src/capture/index.ts";
+} from "../../../src/capture/index.ts";
 
 function makeConfig(dbPath: string): TelemetryConfig {
   return {
