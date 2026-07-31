@@ -14,7 +14,7 @@ dist/
 .pi/
 
 # Subagent runtime artifacts
-.pi-subagents/artifacts/
+.pi-subagents/
 
 # Logs
 *.log
