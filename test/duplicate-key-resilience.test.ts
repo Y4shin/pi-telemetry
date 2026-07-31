@@ -138,4 +138,134 @@ describe("duplicate key resilience", () => {
       .get("tc-new") as { c: number };
     assert.strictEqual(teNew2.c, 1, "tc-new should still be exactly one row");
   });
+
+  it("buffer isolates an unrecoverable statement from the rest of the batch", () => {
+    const t = createBuffer(makeConfig(dbPath), db, () => 1000);
+
+    // Two healthy rows and one statement that fails for a reason idempotency
+    // cannot fix (NOT NULL violation on a required column).
+    t.enqueue(
+      "INSERT INTO telemetry_meta (unix_ms, level, event) VALUES (?, ?, ?)",
+      [1, "warn", "good-1"],
+    );
+    t.enqueue(
+      "INSERT INTO telemetry_meta (unix_ms, level, event) VALUES (?, ?, ?)",
+      [2, "warn", "good-2"],
+    );
+    t.enqueue(
+      "INSERT INTO telemetry_meta (unix_ms, level, event) VALUES (?, ?, ?)",
+      [null, "warn", "bad-null"],
+    );
+
+    t.flush();
+
+    const good = db
+      .prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE event LIKE 'good-%'")
+      .get() as { c: number };
+    const bad = db
+      .prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE event = 'bad-null'")
+      .get() as { c: number };
+    const failed = db
+      .prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE event = 'write_failed'")
+      .get() as { c: number };
+
+    assert.strictEqual(good.c, 2, "healthy rows should commit");
+    assert.strictEqual(bad.c, 0, "offending row should be dropped");
+    assert.strictEqual(failed.c, 1, "offender is logged once");
+
+    // Second flush must not retry the offender.
+    t.flush();
+    const failed2 = db
+      .prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE event = 'write_failed'")
+      .get() as { c: number };
+    assert.strictEqual(failed2.c, 1, "offender must not be retried");
+  });
+
+  it("replayed session_start is idempotent", async () => {
+    // Prior process recorded the session.
+    db.prepare("INSERT INTO sessions (session_id, started_unix_ms) VALUES (?, ?)")
+      .run("sess-replay", 1000);
+
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db, () => 2000);
+    registerSessionCapture(stub.pi, t);
+
+    await stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-replay" } as ExtensionContext["sessionManager"],
+      cwd: "/tmp/proj",
+    });
+    t.flush();
+
+    const rows = db
+      .prepare("SELECT COUNT(*) AS c FROM sessions WHERE session_id = ?")
+      .get("sess-replay") as { c: number };
+    const wf = db
+      .prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE event = 'write_failed'")
+      .get() as { c: number };
+
+    assert.strictEqual(rows.c, 1, "session row should remain exactly one");
+    assert.strictEqual(wf.c, 0, "no write_failed for replayed session");
+  });
+
+  it("natural-key capture INSERTs use INSERT OR IGNORE", async () => {
+    const stub = createL1Stub();
+    const sql: string[] = [];
+    const mockT = {
+      config: makeConfig(dbPath),
+      now: () => 1000,
+      state: {
+        sessionId: "sess-mock",
+        runId: "run-mock",
+        turnId: "turn-mock",
+        turnIndex: 0,
+        lineage: {},
+        timers: new Map(),
+        stagedPromptChars: null,
+        stagedSystemPromptChars: null,
+        correlation: () => ({
+          sessionId: "sess-mock",
+          runId: "run-mock",
+          turnId: "turn-mock",
+        }),
+      },
+      enqueue: (s: string) => sql.push(s),
+      meta: () => {},
+      flush: () => {},
+      close: () => {},
+    };
+
+    registerSessionCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+    registerRunCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+    registerTurnCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+    registerToolCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+    registerLlmCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+    registerBashCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+    registerSessionEventsCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+    registerFeedback(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
+
+    await stub.fire("session_start", { reason: "startup" }, {
+      sessionManager: { getSessionId: () => "sess-mock" } as ExtensionContext["sessionManager"],
+      cwd: "/tmp/proj",
+    });
+    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("agent_start", {});
+    await stub.fire("turn_start", { turnIndex: 0, timestamp: 1000 }, {
+      getContextUsage: () => ({ tokens: 0, contextWindow: 100000, percent: 0 }),
+    });
+    await stub.fire("tool_execution_start", { toolCallId: "tc-mock", toolName: "read", args: {} });
+    await stub.fire("tool_execution_end", { toolCallId: "tc-mock", toolName: "read", result: "ok", isError: false });
+    await stub.fire("session_before_compact", { reason: "x", willRetry: false });
+    stub.events.emit("pi-telemetry:submit-feedback", { source: "s", kind: "k", data: "d" });
+
+    // Collect any INSERT statements. We only care that natural-key INSERTs use
+    // INSERT OR IGNORE; UPDATE statements are irrelevant.
+    const insertStatements = sql.filter((s) => s.trim().toUpperCase().startsWith("INSERT"));
+    assert.ok(insertStatements.length > 0, "capture should emit INSERT statements");
+    for (const stmt of insertStatements) {
+      assert.ok(
+        /INSERT\s+OR\s+IGNORE/i.test(stmt),
+        `natural-key INSERT should be idempotent: ${stmt.slice(0, 80)}`,
+      );
+    }
+  });
 });
