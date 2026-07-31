@@ -127,3 +127,7 @@ TS `test/` changes** — these are Python skills, not part of the TS project.
 Failure modes covered: missing project → analyze skill points to setup;
 non-NixOS uv path vs NixOS system-interpreter path; read-only enforcement
 on both sqlite3 and duckdb.
+
+## Implementation notes
+
+(None yet.)
