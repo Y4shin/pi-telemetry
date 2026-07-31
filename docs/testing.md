@@ -79,3 +79,27 @@ buffer flush: row_count, tx_duration_ms, optional session_id).
 ## Environment overrides
 
 Config tests pass an explicit `env` object to `loadConfig()` to avoid mutating `process.env`. L2 tests set `PI_TELEMETRY_DB_PATH` before creating the session and clean it up afterward.
+
+## Python eval tooling (off-repo, read-only)
+
+Two skills authored in-repo at `skills/telemetry-eval-{setup,analyze}/`
+(deploy later into `~/.pi/agent/git/codeberg.org/Yashin/skills/skills/<name>/`)
+bootstrap a Python project at `~/.pi/telemetry-eval/` (uv → `pyproject.toml`
++ `uv.lock`, else `.venv` + `requirements.txt`; deps
+ pandas/matplotlib/numpy/duckdb) for read-only analysis of `~/.pi/telemetry.db`.
+NOT part of the npm CI — verified manually.
+
+- `telemetry-eval-setup` creates the project + a `telemetry_eval` package:
+  `connect()` (sqlite `file:<path>?mode=ro`, WAL-aware, write/DDL raises),
+  `duck()` (duckdb `ATTACH '<path>' AS tel (TYPE sqlite, READ_ONLY)`),
+  `scratch()` (rw, *separate* file — never the live DB), `resolve_db_path()`
+  (env `PI_TELEMETRY_DB_PATH` → global → project `settings.json` →
+  `~/.pi/telemetry.db`). NixOS: never `uv python install`; gate on a stable
+  system python; compiled wheels need `LD_LIBRARY_PATH`→nix-ld.
+- `telemetry-eval-analyze` writes eval scripts via
+  `from telemetry_eval import connect` + `pd.read_sql_query(sql, con=connect())`;
+  embeds the 10-table schema primer (`resources/schema.md`, derived from
+  `src/db.ts`).
+- Acceptance: `~/.pi/telemetry-eval/scripts/smoke_test.py` exits 0; the example
+  `example_cost_by_model.py` returns a non-empty DataFrame. Run with
+  `cd ~/.pi/telemetry-eval && [LD_LIBRARY_PATH=...] uv run python scripts/x.py`.

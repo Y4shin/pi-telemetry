@@ -234,3 +234,33 @@ preflight→setup + schema-primer-complete) are met; the "and token buckets"
 phrasing is a completeness nicety, not a failed criterion. Optional 2-line
 SQL bump if desired.
 
+### Knowledge harvest — architecture lessons (finalize)
+
+- **Resource-template pattern.** Skills ship verbatim file templates under
+  `resources/` and write them into a target dir via `follow resource
+  "resources/..."` (mirrors `implement-task`'s `resources/feature.md`).
+  The read-only URI + NixOS + path-resolution logic is authored once in the
+  template, never reinvented per run.
+- **Read-only, always.** sqlite3 `file:<path>?mode=ro` (WAL-aware); duckdb
+  `ATTACH '<path>' AS tel (TYPE sqlite, READ_ONLY)`; derived data via
+  `telemetry_eval.scratch()` to a *separate* file. Matches the
+  `query_telemetry` tool's read-only discipline — never open the live WAL DB
+  read-write from an eval script.
+- **NixOS Python tooling.** Never `uv python install` (python-build-standalone
+  has no FHS `ld-linux`). Gate on a stable *system* interpreter
+  (`python3.13 → python3.12 → python3`; stop + ask for
+  `nix profile install nixpkgs#python313` if only a beta). Compiled pip wheels
+  (numpy/duckdb) need `LD_LIBRARY_PATH`→nix-ld (`NIX_LD_LIBRARY_PATH` else
+  `/run/current-system/sw/share/nix-ld/lib`) for `libstdc++.so.6`/`libz.so.1`.\  `[build-system]` + `[tool.setuptools]` so `uv sync` installs the local
+  package — `uv run python scripts/x.py` (script-file mode) puts `scripts/`
+  on `sys.path[0]`, not the project root. No-uv fallback needs
+  `pip install -e .` for the same reason.
+- **Schema primer source of truth = `src/db.ts`, not the idea doc.** The idea
+  doc had minor errors (`llm_requests.retry_after`→`retry_after_ms`; omitted
+  `turns.started_unix_ms`; `session_events.unix_ms` vs
+  `feedback.received_unix_ms`). Always derive the primer from `src/db.ts`.
+- **Sanctioned trade-off (user-approved):** `resolve_db_path` precedence is
+  global→project (per the doc text), the reverse of `src/config.ts`'s actual
+  project→global. Eval scripts may therefore resolve a different DB than the
+  live pi process when a project `settings.json` overrides the global one.
+
