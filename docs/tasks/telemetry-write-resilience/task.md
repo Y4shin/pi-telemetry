@@ -17,7 +17,7 @@ type: bug
 bug: tool-executions-duplicate-insert
 slices:
 - duplicate-key-resilience
-status: draft
+status: slices-planned
 started_at: 2026-07-31
 ---
 
