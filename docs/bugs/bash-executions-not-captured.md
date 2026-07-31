@@ -1,12 +1,17 @@
 ---
 title: bash_executions table never populated
-status: reported
+status: wontfix
 severity: major
 reported: 2026-07-31
-confirmed_by:
+confirmed_by: investigation 2026-07-31
 fix_commit:
 promoted_to:
 ---
+
+> **Verdict: not a bug — working as designed.** The empty table reflects
+> usage (no user-typed `!`/`!!` commands), not a broken collector. See
+> `repro-bash-executions-not-captured.md` for the full trace and the green
+> `test/bash.test.ts`.
 
 # bash_executions table never populated
 
@@ -72,8 +77,35 @@ follows.
 
 ## Root cause
 
-_To be filled during reproduction/triage._
+**By design — not a defect.** `bash_executions` is SPEC'd (SPEC.md §1.6
+"User bash (`!` / `!!`)") to capture only **user-typed** bash commands via
+the `user_bash` event. The collector works: `test/bash.test.ts` passes 6/6,
+and when `user_bash` fires it writes a correct `bash_executions` row
+(success, failing exit code, exclude_from_context, truncated, rethrow,
+cancelled).
+
+The empty table is explained by the SDK wiring, not a bug:
+
+- `user_bash` is emitted from exactly **one** site — interactive mode's
+  `handleBashCommand` (the user-typed `!`/`!!` path). `handleBashCommand`
+  passes the intercepted `operations` to `session.executeBash`, which runs
+  the wrapped `exec` and records the row.
+- The **agent's `bash` tool** (`createBashToolDefinition.execute`) calls
+  `ops.exec` directly and emits `tool_execution_start` / `tool_result` /
+  `tool_execution_end` (captured in `tool_executions`), but **never emits
+  `user_bash`**. So the 731 agent bash calls were never meant to populate
+  `bash_executions` — they live in `tool_executions` by design.
+- No `!`/`!!` commands were typed in the captured sessions → 0 rows.
+
+This was originally flagged as a collection gap in the DB health analysis;
+that flag was a false alarm based on the mistaken assumption that
+`bash_executions` should hold all bash activity including agent tool calls.
 
 ## Fix summary
 
-_To be filled after the fix._
+No fix. By design. (SPEC.md line 480 reserves a `capture.bashCommand` flag
+for future full-command capture.) If richer per-command metrics for **agent**
+bash tool calls are wanted — `exit_code`, `command_hash`, `cwd`,
+`cancelled`, `truncated`, `output_chars` — that is a feature request needing
+a new capture hook (e.g., `tool_execution_*` filtered to `tool_name ===
+"bash"`), not a bug fix. Route via refine-idea / create-task.
