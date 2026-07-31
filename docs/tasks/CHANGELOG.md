@@ -1,5 +1,9 @@
 # Task Changelog
 
+## 2026-07-31 — Subagent parentage env-var fallback (subagent-parentage-not-recorded)
+
+Fixed: `readLineageFromEnv` only read `PI_TELEMETRY_*` env vars, but pi-subagents sets `PI_SUBAGENT_*` on child processes. Added fallback reads so subagent sessions now stamp `parent_session_id`, `parent_run_id`, `depth`, `agent_label` from `PI_SUBAGENT_PARENT_SESSION` / `_PARENT_RUN_ID` / `_PARENT_DEPTH` / `_CHILD_AGENT`. Empty strings treated as absent (non-fanout children). Added `test/subagent-parentage.test.ts` (3 tests); updated lineage + capture test env cleanup to isolate `PI_SUBAGENT_*`. Suite 150→153 green, tsc clean. Bug closed + archived.
+
 ## 2026-07-31 — Telemetry write path resilience (telemetry-write-resilience)
 
 Fixed two intertwined defects that caused total session telemetry loss: `src/buffer.ts` `flush()` re-enqueued the whole batch on any statement error, so one duplicate `tool_call_id` (PK UNIQUE) rolled back all unrelated rows and retried forever — 3 live sessions lost every row (only `telemetry_meta` survived). Fix: flush keeps the batched fast-path but falls back to per-statement application (log+drop offenders, no re-enqueue); all natural-key capture INSERTs switched to `INSERT OR IGNORE` for cross-process idempotency (replayed keys no-op). Added `test/duplicate-key-resilience.test.ts` (4 tests: regression, buffer isolation, session idempotency, INSERT-OR-IGNORE SQL audit). Suite 146→150 green, tsc clean. Bug `tool-executions-duplicate-insert` closed.
