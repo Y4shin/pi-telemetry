@@ -67,10 +67,26 @@ describe("session capture", () => {
   let dbPath: string;
   let db: DatabaseSync;
 
+  const envBackup: Record<string, string | undefined> = {};
+  const lineageEnvKeys = [
+    "PI_TELEMETRY_PARENT_SESSION_ID",
+    "PI_TELEMETRY_PARENT_RUN_ID",
+    "PI_TELEMETRY_DEPTH",
+    "PI_TELEMETRY_AGENT_LABEL",
+    "PI_SUBAGENT_PARENT_SESSION",
+    "PI_SUBAGENT_PARENT_RUN_ID",
+    "PI_SUBAGENT_PARENT_DEPTH",
+    "PI_SUBAGENT_CHILD_AGENT",
+  ];
+
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), "pi-telemetry-capture-"));
     dbPath = join(tmp, "telemetry.db");
     db = openDatabase(dbPath);
+    for (const key of lineageEnvKeys) {
+      envBackup[key] = process.env[key];
+      delete process.env[key];
+    }
   });
 
   afterEach(() => {
@@ -78,6 +94,10 @@ describe("session capture", () => {
       db.close();
       rmSync(tmp, { recursive: true, force: true });
     } catch { /* ignore */ }
+    for (const key of lineageEnvKeys) {
+      if (envBackup[key] === undefined) delete process.env[key];
+      else process.env[key] = envBackup[key];
+    }
   });
 
   it("session_start inserts a sessions row with lineage columns", async () => {

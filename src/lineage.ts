@@ -22,10 +22,22 @@ const LINEAGE_ENV_RESPONSE_EVENT = "pi-telemetry:lineage-env.response";
 export function readLineageFromEnv(
   env: Record<string, string | undefined>,
 ): LineageState {
-  const parentSessionId = env.PI_TELEMETRY_PARENT_SESSION_ID ?? null;
-  const parentRunId = env.PI_TELEMETRY_PARENT_RUN_ID ?? null;
+  // Primary: PI_TELEMETRY_* (SPEC §4 contract). Empty strings are preserved
+  // as-is (the original behavior; tested by the lineage suite).
+  // Fallback: PI_SUBAGENT_* (what pi-subagents actually sets today — it
+  // uses its own namespace, not PI_TELEMETRY_*). Empty strings from
+  // PI_SUBAGENT_* are treated as absent (pi-subagents sets "" for
+  // unset fields on non-fanout children).
+  const parentSessionId =
+    env.PI_TELEMETRY_PARENT_SESSION_ID
+    ?? (env.PI_SUBAGENT_PARENT_SESSION || null);
+  const parentRunId =
+    env.PI_TELEMETRY_PARENT_RUN_ID
+    ?? (env.PI_SUBAGENT_PARENT_RUN_ID || null);
 
-  const depthRaw = env.PI_TELEMETRY_DEPTH;
+  const depthRaw =
+    env.PI_TELEMETRY_DEPTH
+    ?? (env.PI_SUBAGENT_PARENT_DEPTH || undefined);
   let depth: number | null = null;
   if (depthRaw !== undefined) {
     const n = Number(depthRaw);
@@ -35,7 +47,9 @@ export function readLineageFromEnv(
     // Non-numeric depth is tolerated: leave as NULL per schema INTEGER type.
   }
 
-  const agentLabel = env.PI_TELEMETRY_AGENT_LABEL ?? null;
+  const agentLabel =
+    env.PI_TELEMETRY_AGENT_LABEL
+    ?? (env.PI_SUBAGENT_CHILD_AGENT || null);
 
   return {
     parentSessionId: parentSessionId ?? null,

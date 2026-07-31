@@ -1,9 +1,9 @@
 ---
 title: Subagent child sessions never record parentage (parent_* always NULL)
-status: reported
+status: fixed
 severity: major
 reported: 2026-07-31
-confirmed_by:
+confirmed_by: code trace + L1 repro 2026-07-31
 fix_commit:
 promoted_to:
 ---
@@ -78,8 +78,45 @@ this a cross-package issue (pi-subagents side).
 
 ## Root cause
 
-_To be filled during reproduction/triage._
+**Env-var namespace mismatch between pi-telemetry and pi-subagents.**
+
+pi-telemetry's `readLineageFromEnv` (`src/lineage.ts`) reads `PI_TELEMETRY_*`
+env vars. pi-subagents — the only actual spawner of child pi processes —
+sets its own `PI_SUBAGENT_*` env vars on children and never sets
+`PI_TELEMETRY_*`. The data is available in the child's environment but
+under a different namespace, so `readLineageFromEnv` returns all-NULL.
+
+The mapping:
+
+| pi-telemetry reads | pi-subagents sets |
+|---|---|
+| `PI_TELEMETRY_PARENT_SESSION_ID` | `PI_SUBAGENT_PARENT_SESSION` |
+| `PI_TELEMETRY_PARENT_RUN_ID` | `PI_SUBAGENT_PARENT_RUN_ID` |
+| `PI_TELEMETRY_DEPTH` | `PI_SUBAGENT_PARENT_DEPTH` |
+| `PI_TELEMETRY_AGENT_LABEL` | `PI_SUBAGENT_CHILD_AGENT` |
+
+Note: `PI_SUBAGENT_PARENT_RUN_ID` and `PI_SUBAGENT_PARENT_DEPTH` are set
+to `""` (empty string) for non-fanout children, so the fallback must
+treat empty strings as absent.
 
 ## Fix summary
 
-_To be filled after the fix._
+Fixed in `src/lineage.ts`: `readLineageFromEnv` now falls back to
+`PI_SUBAGENT_*` env vars when `PI_TELEMETRY_*` aren't set. The
+`PI_TELEMETRY_*` contract stays as the primary mechanism (SPEC §4);
+`PI_SUBAGENT_*` is a pragmatic fallback so parentage works with the
+actual spawner (pi-subagents) today.
+
+- `PI_TELEMETRY_*` vars preserve original semantics (empty string →
+  empty string, tested by the existing lineage suite).
+- `PI_SUBAGENT_*` fallback vars treat empty strings as absent (`||` not
+  `??`), since pi-subagents sets `""` for unset fields on non-fanout
+  children.
+
+**Regression test:** `test/subagent-parentage.test.ts` (3 tests) —
+stamps parentage from `PI_SUBAGENT_*` env vars; leaves root sessions NULL;
+treats empty `PI_SUBAGENT_*` strings as absent. Also updated
+`test/lineage.test.ts` and `test/capture.test.ts` env cleanup to isolate
+`PI_SUBAGENT_*` vars (which leak from the real pi-subagents environment).
+
+Validation: `npm run check` clean; full `npm test` 153 pass / 0 fail.

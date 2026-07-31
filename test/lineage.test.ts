@@ -46,6 +46,10 @@ describe("lineage foundation", () => {
       "PI_TELEMETRY_PARENT_RUN_ID",
       "PI_TELEMETRY_DEPTH",
       "PI_TELEMETRY_AGENT_LABEL",
+      "PI_SUBAGENT_PARENT_SESSION",
+      "PI_SUBAGENT_PARENT_RUN_ID",
+      "PI_SUBAGENT_PARENT_DEPTH",
+      "PI_SUBAGENT_CHILD_AGENT",
     ]) {
       envBackup[key] = process.env[key];
       delete process.env[key];
