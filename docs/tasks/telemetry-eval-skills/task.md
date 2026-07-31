@@ -184,3 +184,53 @@ installs), or document `PYTHONPATH=.` / `python -m scripts.<name>` for that
 path. Not a blocker for landing `setup` — the operative (uv) path is
 verified green.
 
+### analyze — telemetry-eval-analyze skill + schema primer (landed)
+
+Landed 3 files under `skills/telemetry-eval-analyze/`: `SKILL.md` +
+resources `schema.md` (10-table primer) + `scripts/example_cost_by_model.py`
+(+284 lines, no other dirs touched). The skill consumes the setup package's
+`connect()`/`duck()` helpers (never hand-rolls the read-only URI/path); the
+canonical pandas pattern is `pd.read_sql_query(sql, con=connect())` with an
+explicit `follow resource "resources/schema.md"`. **Preflight** stops and
+points the user to `/skill:telemetry-eval-setup` when `~/.pi/telemetry-eval/`
+is missing (`pyproject.toml` *and* `requirements.txt` both absent) — it does
+not create the project. Read-only discipline documented: forbids bare
+`sqlite3.connect` on the live DB; derived writes go through
+`telemetry_eval.scratch()`. The NixOS `LD_LIBRARY_PATH`→nix-ld note is
+carried over from the setup skill.
+
+`resources/schema.md` documents all 10 tables (`sessions`, `agent_runs`,
+`turns`, `llm_requests`, `tool_executions`, `bash_executions`,
+`session_events`, `feedback`, `telemetry_meta`, `flush_log`) with PK,
+FK/join keys, key columns, and the `unix_ms` (INTEGER ms) convention up
+front; a join map and a worked `sessions→agent_runs→turns→llm_requests` JOIN
++ pandas-load example make that JOIN derivable from the primer alone. Column
+names cross-checked against `src/db.ts` and match exactly (e.g.
+`llm_requests.retry_after_ms`, `turns.started_unix_ms`+`duration_ms`,
+`feedback.received_unix_ms`).
+
+`example_cost_by_model.py` groups `turns` by `model`, sums
+`cost_total_usd` (`SUM(cost_total_usd) AS cost_total_usd`,
+`ORDER BY ... DESC`) and three token buckets (`input_tokens`,
+`output_tokens`, `total_tokens`) into a pandas DataFrame via
+`pd.read_sql_query(sql, con=connect())`; handles the empty-DB edge case
+(`if df.empty: print(...); return 0` — exit 0, no crash). Uses `connect()`
+read-only — no `sqlite3`, no hardcoded path.
+
+Verified green: `python3.13 -m py_compile` on the example script (clean);
+the example copied into the real project and run against the live DB on
+NixOS (`export
+LD_LIBRARY_PATH=/run/current-system/sw/share/nix-ld/lib`, then `uv run
+python scripts/example_cost_by_model.py`) exited 0 with a non-empty
+DataFrame (5 rows, incl. a `NaN` model group); `npm test` 146/146;
+`npx tsc --noEmit` clean. No TS source files modified (diff confirms exactly
+the 3 skill files).
+
+**Minor (low, non-blocking — for the coherence step's discretion):** the
+example script sums 3 of `turns`' 5 token columns; it omits
+`cache_read_tokens` and `cache_write_tokens`. All binding acceptance
+criteria (`cost_total_usd` + non-empty + read-only + empty-DB +
+preflight→setup + schema-primer-complete) are met; the "and token buckets"
+phrasing is a completeness nicety, not a failed criterion. Optional 2-line
+SQL bump if desired.
+
