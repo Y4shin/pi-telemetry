@@ -4,7 +4,7 @@ status: fixed
 severity: major
 reported: 2026-07-31
 confirmed_by: code trace + L1 repro 2026-07-31
-fix_commit:
+fix_commit: 109af0968d4bfca029b2f9e821962727575a5edf
 promoted_to:
 ---
 
