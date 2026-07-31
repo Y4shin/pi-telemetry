@@ -4,11 +4,11 @@ slug: analyze
 title: "telemetry-eval-analyze skill + schema primer"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: [setup]
 started_at:
-completed_at:
+completed_at: 2026-07-31T10:04:01Z
 ---
 
 # telemetry-eval-analyze skill + schema primer
