@@ -79,6 +79,24 @@ export function createBuffer(
     }
   };
 
+  const applyOne = (stmt: QueuedStatement): boolean => {
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      db.prepare(stmt.sql).run(...stmt.params);
+      db.exec("COMMIT");
+      return true;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        /* ignore */
+      }
+      recordMeta("error", "write_failed", `${stmt.sql} | ${detail}`);
+      return false;
+    }
+  };
+
   const flush = () => {
     if (buffer.length === 0) return;
     const batch = buffer;
@@ -93,15 +111,24 @@ export function createBuffer(
       }
       db.exec("COMMIT");
     } catch (err) {
-      // Restore unflushed statements for retry on next flush.
-      buffer.unshift(...batch);
-      const detail = err instanceof Error ? err.message : String(err);
+      // Fast-path batch failed. Roll back, then apply statements
+      // individually so one bad row cannot poison unrelated rows or retry
+      // forever. Offenders are logged and dropped.
       try {
         db.exec("ROLLBACK");
       } catch {
         /* ignore */
       }
-      recordMeta("error", "write_failed", detail);
+      let committed = 0;
+      for (const stmt of batch) {
+        if (applyOne(stmt)) {
+          committed++;
+        }
+      }
+      const txDurationMs = now() - startMs;
+      if (committed > 0) {
+        logFlush(committed, txDurationMs);
+      }
       return;
     }
     const txDurationMs = now() - startMs;

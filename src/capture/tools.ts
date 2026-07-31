@@ -176,7 +176,7 @@ function insertToolExecution(
   const captureResults = t.config.capture.toolResults;
 
   t.enqueue(
-    `INSERT INTO tool_executions (
+    `INSERT OR IGNORE INTO tool_executions (
       tool_call_id, turn_id, run_id, session_id, tool_name, started_unix_ms,
       duration_ms, is_error, error_class, args_chars, result_chars, result_hash,
       args_json, result_text
