@@ -1,0 +1,18 @@
+[project]
+name = "telemetry-eval"
+version = "0.1.0"
+description = "Read-only analysis helpers for pi-telemetry data"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas",
+    "matplotlib",
+    "numpy",
+    "duckdb",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["telemetry_eval"]
