@@ -35,7 +35,7 @@ export function registerTurnCapture(pi: ExtensionAPI, t: Telemetry): void {
       }
 
       t.enqueue(
-        `INSERT INTO turns (
+        `INSERT OR IGNORE INTO turns (
           turn_id, run_id, session_id, turn_index, started_unix_ms,
           duration_ms, provider, model, input_tokens, output_tokens,
           cache_read_tokens, cache_write_tokens, total_tokens,

@@ -33,7 +33,7 @@ function insertEvent(
   }
 
   t.enqueue(
-    `INSERT INTO session_events (
+    `INSERT OR IGNORE INTO session_events (
       event_id, session_id, unix_ms, type, payload
     ) VALUES (?, ?, ?, ?, ?)`,
     [randomUUID(), sessionId, t.now(), type, payloadText],

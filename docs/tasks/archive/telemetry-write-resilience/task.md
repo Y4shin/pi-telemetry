@@ -17,7 +17,7 @@ type: bug
 bug: tool-executions-duplicate-insert
 slices:
 - duplicate-key-resilience
-status: slices-planned
+status: done
 started_at: 2026-07-31
 ---
 
@@ -64,3 +64,54 @@ process) must no-op cleanly.
 One default slice: `slices/1-duplicate-key-resilience.md`. May be split by
 implement-task into (a) buffer resilience + (b) idempotency if the worker
 struggles — the two defects are independent and separable.
+
+## Implementation notes
+
+### Slice `duplicate-key-resilience` (landed)
+
+Both intertwined defects fixed in one slice:
+
+1. **Buffer flush resilience (`src/buffer.ts`)** — `flush()` keeps the
+   fast-path batched transaction, but on failure now rolls back and applies
+   each statement individually. Healthy rows commit; offending rows are
+   logged to `telemetry_meta` (`event = 'write_failed'`) and dropped. A bad
+   row is no longer re-enqueued forever, so a single failing statement can
+   no longer destroy a session's telemetry.
+
+2. **Natural-key idempotency across processes (`src/capture/*`,
+   `src/feedback.ts`)** — all natural-key INSERTs now use `INSERT OR IGNORE`
+   (equivalent to `ON CONFLICT(<pk>) DO NOTHING`), so a replayed key from a
+   resumed session no-ops instead of raising a UNIQUE violation. Tables
+   updated: `tool_executions`, `agent_runs`, `turns`, `llm_requests`,
+   `bash_executions`, `session_events`, `feedback`. `sessions` already used
+   `INSERT OR IGNORE`. The in-memory dedup in `tools.ts` remains as a fast
+   path.
+
+**Tests:** `test/duplicate-key-resilience.test.ts` (4 tests) — replayed
+`tool_call_id` does not poison the batch; buffer isolates an unrecoverable
+statement; replayed `session_start` is idempotent; SQL audit that every
+capture INSERT uses `INSERT OR IGNORE`.
+
+**Deviations:**
+- The idempotency sweep is covered by event-replay tests for
+  `tool_executions` and `sessions` (tables whose natural keys arrive from
+  SDK events) plus a SQL assertion test verifying every capture INSERT is
+  `INSERT OR IGNORE`. Tables whose natural keys are generated inside the
+  capture code (`agent_runs`, `turns`, `llm_requests`, `bash_executions`,
+  `session_events`, `feedback`) cannot be replayed via event re-fire, so the
+  SQL audit provides equivalent coverage.
+- No new `MetaEvent` type was added; the fallback path logs per-statement
+  failures under the existing `write_failed` event rather than introducing
+  a `buffer_batch_failed` meta event.
+- The original reproduction artifact
+  `docs/tasks/telemetry-write-resilience/repro-duplicate-insert.ts` was
+  left in place because it is referenced by the bug/task docs; the
+  maintained regression test lives in `test/`.
+
+**Validation:** `npm run check` clean; `node --test
+test/duplicate-key-resilience.test.ts` pass 4 / fail 0; full `npm test` —
+150 tests pass, 0 fail.
+
+**Tradeoff note:** `INSERT OR IGNORE` silently drops a genuinely-different
+row that reuses a key. With UUID keys this is effectively impossible; the
+tradeoff (drop vs total session loss) favors idempotency.

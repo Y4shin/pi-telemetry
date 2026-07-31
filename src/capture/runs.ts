@@ -31,7 +31,7 @@ export function registerRunCapture(pi: ExtensionAPI, t: Telemetry): void {
       t.state.timers.set(`${RUN_START_PREFIX}${runId}`, now);
 
       t.enqueue(
-        `INSERT INTO agent_runs (
+        `INSERT OR IGNORE INTO agent_runs (
           run_id, session_id, started_unix_ms, duration_ms,
           prompt_chars, system_prompt_chars, message_count, outcome
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

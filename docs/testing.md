@@ -69,6 +69,35 @@ L2 conventions proven during pi-telemetry:
 - Simulate DB errors by enqueuing SQL against a non-existent table; assert a `telemetry_meta` row appears and no exception escapes.
 - Use isolated temp directories per test; clean up in `afterEach`.
 
+### Write-path conventions (resilience)
+
+Two invariants landed with the `telemetry-write-resilience` bug task; any
+future write-path change must preserve them:
+
+- **Batched fast-path + per-statement fallback.** `createBuffer`'s `flush()`
+  first attempts the whole batch in one `BEGIN…COMMIT`. On ANY statement
+  error it rolls back, then applies each statement individually via
+  `applyOne`: healthy rows commit, offenders are logged to `telemetry_meta`
+  (`event='write_failed'`, detail includes the SQL) and **dropped — never
+  re-enqueued**. The buffer is cleared at the top of `flush()`, so a failing
+  row cannot poison unrelated rows or retry forever. Regression:
+  `test/duplicate-key-resilience.test.ts` (buffer isolation case). When
+  adding a new capture path, do NOT reintroduce `buffer.unshift(...batch)`
+  on flush failure.
+- **Natural-key idempotency (`INSERT OR IGNORE`).** Every natural-key
+  capture INSERT uses `INSERT OR IGNORE` (≡ `ON CONFLICT(<pk>) DO NOTHING`)
+  so a key replayed across processes (e.g. session resume re-firing an
+  already-recorded `tool_call_id`) no-ops instead of raising UNIQUE. The
+  in-memory dedup in `tools.ts` (`completedToolCallIds` etc.) stays as a
+  fast path but is NOT the only defense — it does not survive process
+  restarts. Audit coverage: the SQL-audit test in
+  `test/duplicate-key-resilience.test.ts` asserts every capture INSERT is
+  `INSERT OR IGNORE`; keep that test green when adding capture tables.
+- **Cross-process replay tests** pre-seed a row (simulating a prior
+  process) in `beforeEach`, then fire events through a fresh `createBuffer`
+  (empty module-level dedup) and assert exactly one row + no `write_failed`.
+  Reuse this pattern for any new natural-key table.
+
 ## Soak policy
 
 Synthetic multi-writer soak tests are retired (user decision 2026-07-30):
