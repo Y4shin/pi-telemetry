@@ -11,10 +11,12 @@ from telemetry_eval import connect
 SQL = """
 SELECT
     model,
-    SUM(cost_total_usd) AS cost_total_usd,
-    SUM(input_tokens)   AS input_tokens,
-    SUM(output_tokens)  AS output_tokens,
-    SUM(total_tokens)   AS total_tokens
+    SUM(cost_total_usd)    AS cost_total_usd,
+    SUM(input_tokens)      AS input_tokens,
+    SUM(output_tokens)     AS output_tokens,
+    SUM(cache_read_tokens)  AS cache_read_tokens,
+    SUM(cache_write_tokens) AS cache_write_tokens,
+    SUM(total_tokens)      AS total_tokens
 FROM turns
 GROUP BY model
 ORDER BY cost_total_usd DESC
