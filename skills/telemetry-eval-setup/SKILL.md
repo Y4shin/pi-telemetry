@@ -134,6 +134,7 @@ Use the system `python3` to create a `.venv` and install from
 cd ~/.pi/telemetry-eval
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -e .   # install the local telemetry_eval package so `import telemetry_eval` resolves
 ```
 
 If the only available system `python3` is a beta/unstable version (for

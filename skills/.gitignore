@@ -1,0 +1,5 @@
+# Python bytecode / caches from local skill verification (py_compile, uv run).
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
