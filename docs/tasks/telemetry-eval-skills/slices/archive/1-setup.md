@@ -4,11 +4,11 @@ slug: setup
 title: "telemetry-eval-setup skill + telemetry_eval package"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: s
 blocked_by: []
 started_at:
-completed_at:
+completed_at: 2026-07-31T09:56:12Z
 ---
 
 # telemetry-eval-setup skill + telemetry_eval package

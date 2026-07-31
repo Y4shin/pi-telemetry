@@ -130,4 +130,57 @@ on both sqlite3 and duckdb.
 
 ## Implementation notes
 
-(None yet.)
+### setup — telemetry-eval-setup skill + telemetry_eval package (landed)
+
+Landed 5 files under `skills/telemetry-eval-setup/`: `SKILL.md` +
+resources `telemetry_eval/__init__.py`, `pyproject.toml`, `requirements.txt`,
+`scripts/smoke_test.py`. Package contract exported by `telemetry_eval`:
+`resolve_db_path() -> str` (never creates the DB; raises `FileNotFoundError`
+with the resolved path + a hint if absent), `connect() -> sqlite3.Connection`
+(`file:<path>?mode=ro`, uri=True; WAL-aware, sees latest committed rows; any
+write/DDL raises), `duck() -> duckdb` connection (`INSTALL sqlite; LOAD sqlite;
+ATTACH '<path>' AS tel (TYPE sqlite, READ_ONLY)`), `scratch(path="scratch.db")`
+(rw connection to a *separate* file under `~/.pi/telemetry-eval/`, never the
+live DB). DB-path precedence: `PI_TELEMETRY_DB_PATH` env (empty = unset) →
+global `~/.pi/agent/settings.json` (`pi-telemetry.dbPath`) → project
+`<cwd>/.pi/settings.json` → default `~/.pi/telemetry.db`; leading `~/` expanded.
+
+**Sanctioned deviation (recorded, not a defect):** precedence is
+**global→project**, the reverse of `src/config.ts`'s `loadMergedSettings`
+(`{...global, ...project}` = project→global), per arch-spec decision 1 and the
+idea text. Consequence: an eval script may resolve a different DB than the
+live pi process when a project `settings.json` overrides the global one.
+Approved trade-off.
+
+Verified green on the target (uv) path: `scripts/smoke_test.py` exits 0
+(imports `pandas`/`duckdb`/`telemetry_eval` clean; `connect()` `SELECT
+count(*) FROM sessions` returns rows; a `CREATE TABLE` write raises;
+`duck()` attaches ro and `SELECT * FROM tel.turns LIMIT 1` works); `npm test`
+146/146; `npm run check` (`tsc --noEmit`) clean.
+
+In-scope implementation choices (no new scope, recorded for the record):
+- `[build-system] requires = ["setuptools>=61"]` + `[tool.setuptools]
+  packages = ["telemetry_eval"]` added to `pyproject.toml` so `uv sync`
+  installs the local `telemetry_eval` package into site-packages. Required
+  because `uv run python scripts/x.py` (script-file mode) puts `scripts/`
+  on `sys.path[0]`, **not** the project root — without the build-system,
+  `import telemetry_eval` fails in that invocation mode.
+- NixOS uses the **system** nix interpreter (never `uv python install`;
+  stable-python gate, `python3.13 → python3.12 → python3` fallback). On the
+  target NixOS box that interpreter needs `LD_LIBRARY_PATH` pointed at nix-ld
+  (`NIX_LD_LIBRARY_PATH` else `/run/current-system/sw/share/nix-ld/lib`)
+  for pip wheels (`numpy`/`duckdb`) to load `libstdc++.so.6`/`libz.so.1`;
+  documented in `SKILL.md`.
+
+**Known gap (medium, latent — not exercised on the target, which has uv):**
+the **no-uv fallback path** (`pip install -r requirements.txt` +
+`.venv/bin/python scripts/<name>.py`) installs only the four deps and does
+NOT install the local `telemetry_eval` package, so `import telemetry_eval`
+fails in that invocation mode (script-file mode → `scripts/` on `sys.path`,
+project root not on path). Recommended fix before/within the `analyze` slice
+or the coherence step: add `.venv/bin/pip install -e .` to the no-uv setup
+section of `SKILL.md` (the `[build-system]` already supports editable
+installs), or document `PYTHONPATH=.` / `python -m scripts.<name>` for that
+path. Not a blocker for landing `setup` — the operative (uv) path is
+verified green.
+
