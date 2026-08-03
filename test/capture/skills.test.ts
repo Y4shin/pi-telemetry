@@ -445,5 +445,96 @@ describe("registerSkillCapture input handler", () => {
       assert.strictEqual(payload.skill_source, null);
       assert.strictEqual(payload.skills_package_version, null);
     });
+
+    it("resolves version from a deeply nested skill sourceInfo.path", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "deep", "skills", "category", "implement-task");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# implement-task");
+      writePackageJson(join(tmp, "deep"), { name: "task-workflow", version: "2.4.0" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("implement-task", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-deep");
+
+      await stub.fire("input", inputEvent("/skill:implement-task target", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-version-deep") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.skill_source, "task-workflow");
+      assert.strictEqual(payload.skills_package_version, "2.4.0");
+    });
+
+    it("caches package.json reads across repeated invocations", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "cache", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      const pkgDir = join(tmp, "cache");
+      writePackageJson(pkgDir, { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-cache");
+
+      await stub.fire("input", inputEvent("/skill:foo first", "interactive"));
+      await stub.fire("input", inputEvent("/skill:foo second", "interactive"));
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid")
+        .all("sess-version-cache") as Array<{ payload: string }>;
+      assert.strictEqual(rows.length, 2);
+      for (const row of rows) {
+        const payload = JSON.parse(row.payload) as Record<string, unknown>;
+        assert.strictEqual(payload.skills_package_version, "2.5.1");
+      }
+
+      // Mutate the package.json; a cached lookup would still report the old version.
+      writePackageJson(pkgDir, { name: "task-workflow", version: "3.0.0" });
+      await stub.fire("input", inputEvent("/skill:foo third", "interactive"));
+      t.flush();
+
+      const row3 = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid LIMIT 1 OFFSET 2")
+        .get("sess-version-cache") as { payload: string };
+      const payload3 = JSON.parse(row3.payload) as Record<string, unknown>;
+      assert.strictEqual(payload3.skills_package_version, "2.5.1");
+    });
+
+    it("invalidates cache on resources_discover reload and re-resolves", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "reload", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      const pkgDir = join(tmp, "reload");
+      writePackageJson(pkgDir, { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-reload");
+
+      await stub.fire("input", inputEvent("/skill:foo first", "interactive"));
+      t.flush();
+
+      writePackageJson(pkgDir, { name: "task-workflow", version: "3.0.0" });
+      await stub.fire("resources_discover", { type: "resources_discover", cwd: "/tmp/proj", reason: "reload" });
+
+      await stub.fire("input", inputEvent("/skill:foo second", "interactive"));
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid")
+        .all("sess-version-reload") as Array<{ payload: string }>;
+      assert.strictEqual(rows.length, 2);
+      assert.strictEqual(JSON.parse(rows[0].payload).skills_package_version, "2.5.1");
+      assert.strictEqual(JSON.parse(rows[1].payload).skills_package_version, "3.0.0");
+    });
   });
 });
