@@ -918,4 +918,252 @@ describe("registerSkillCapture input handler", () => {
       assert.strictEqual(payload.target, undefined);
     });
   });
+
+  describe("telemetry_skill_context tool", () => {
+    function turnStartEvent(turnIndex: number): TurnStartEvent {
+      return { type: "turn_start", turnIndex, timestamp: Date.now() };
+    }
+
+    function findTool(stub: ReturnType<typeof createL1Stub>) {
+      const tool = stub.tools.find((t) => t.name === "telemetry_skill_context");
+      assert.ok(tool, "telemetry_skill_context tool should be registered");
+      return tool!.definition as {
+        execute: (toolCallId: string, params: unknown, signal?: unknown, onUpdate?: unknown, ctx?: unknown) => Promise<unknown>;
+      };
+    }
+
+    async function setupSkillInvoke(stub: ReturnType<typeof createL1Stub>, t: ReturnType<typeof createBuffer>, sessionId: string, runId: string, turnId: string) {
+      await setupSession(stub, t, sessionId);
+      await stub.fire("input", inputEvent("/skill:foo bar baz", "interactive"));
+      t.flush();
+      t.state.runId = runId;
+      t.state.turnId = turnId;
+      t.state.turnIndex = 1;
+      await stub.fire("turn_start", turnStartEvent(1));
+      t.flush();
+    }
+
+    it("returns success-neutral result", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSkillInvoke(stub, t, "sess-tool-1", "run-tool-1", "turn-tool-1");
+
+      const def = findTool(stub);
+      const result = await def.execute("tc-1", { sliceCount: 1 });
+
+      assert.ok(result);
+      assert.deepStrictEqual((result as { content: unknown }).content, [{ type: "text", text: "Recorded." }]);
+      assert.deepStrictEqual((result as { details: unknown }).details, {});
+    });
+
+    it("enriches the current skill_invoke row and projects metadata", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSkillInvoke(stub, t, "sess-tool-2", "run-tool-2", "turn-tool-2");
+
+      const def = findTool(stub);
+      await def.execute("tc-2", {
+        target: "pi-telemetry",
+        map: "skill-workflow",
+        slice: "swt-telemetry-skill-context-tool",
+        sliceCount: 4,
+        extra: { outcome: "success", retry: false },
+      });
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-2") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, "pi-telemetry");
+      assert.strictEqual(payload.map, "skill-workflow");
+      assert.strictEqual(payload.slice, "swt-telemetry-skill-context-tool");
+      assert.strictEqual(payload.slice_count, 4);
+      assert.deepStrictEqual(payload.extra, { outcome: "success", retry: false });
+
+      const meta = db
+        .prepare("SELECT key, type, value_text, value_int, value_bool FROM session_event_metadata WHERE event_id = ? ORDER BY key")
+        .all(row.event_id) as Array<{ key: string; type: string; value_text: string | null; value_int: number | null; value_bool: number | null }>;
+      const byKey = new Map(meta.map((m) => [m.key, m]));
+      assert.strictEqual(byKey.get("target")?.type, "string");
+      assert.strictEqual(byKey.get("target")?.value_text, "pi-telemetry");
+      assert.strictEqual(byKey.get("map")?.value_text, "skill-workflow");
+      assert.strictEqual(byKey.get("slice")?.value_text, "swt-telemetry-skill-context-tool");
+      assert.strictEqual(byKey.get("slice_count")?.type, "int");
+      assert.strictEqual(byKey.get("slice_count")?.value_int, 4);
+      assert.strictEqual(byKey.get("outcome")?.type, "string");
+      assert.strictEqual(byKey.get("outcome")?.value_text, "success");
+      assert.strictEqual(byKey.get("retry")?.type, "bool");
+      assert.strictEqual(byKey.get("retry")?.value_bool, 0);
+    });
+
+    it("records a telemetry_meta note when no skill_invoke preceded the turn", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-tool-noskill");
+      t.state.runId = "run-noskill";
+      t.state.turnId = "turn-noskill";
+      t.state.turnIndex = 1;
+
+      const def = findTool(stub);
+      await def.execute("tc-3", { sliceCount: 1 });
+      t.flush();
+
+      const count = db
+        .prepare("SELECT COUNT(*) AS c FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-noskill") as { c: number };
+      assert.strictEqual(count.c, 0);
+
+      const meta = db
+        .prepare("SELECT * FROM telemetry_meta WHERE session_id = ? AND event = 'handler_error'")
+        .get("sess-tool-noskill") as Record<string, unknown>;
+      assert.ok(meta, "expected handler_error meta row");
+      assert.strictEqual(meta.level, "warn");
+    });
+
+    it("records a telemetry_meta note when called outside a turn", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-tool-noturn");
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+      // run_id/turn_id intentionally left null.
+
+      const def = findTool(stub);
+      await def.execute("tc-4", { sliceCount: 1 });
+      t.flush();
+
+      const meta = db
+        .prepare("SELECT * FROM telemetry_meta WHERE session_id = ? AND event = 'handler_error'")
+        .get("sess-tool-noturn") as Record<string, unknown>;
+      assert.ok(meta, "expected handler_error meta row");
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-noturn") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.slice_count, undefined);
+    });
+
+    it("merges multiple enrichments on the same row", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSkillInvoke(stub, t, "sess-tool-merge", "run-tool-merge", "turn-tool-merge");
+
+      const def = findTool(stub);
+      await def.execute("tc-5a", { sliceCount: 1, extra: { alpha: 1 } });
+      await def.execute("tc-5b", { extra: { beta: 2 }, target: "pi-telemetry" });
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-merge") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.slice_count, 1);
+      assert.strictEqual(payload.target, "pi-telemetry");
+      assert.deepStrictEqual(payload.extra, { alpha: 1, beta: 2 });
+
+      const eventRow = db
+        .prepare("SELECT event_id FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-merge") as { event_id: string };
+      const count = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE event_id = ? AND key = 'slice_count'")
+        .get(eventRow.event_id) as { c: number };
+      assert.strictEqual(count.c, 1);
+    });
+
+    it("hashes non-slug extra string values", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSkillInvoke(stub, t, "sess-tool-privacy", "run-tool-privacy", "turn-tool-privacy");
+
+      const secret = "super secret value 42";
+      const def = findTool(stub);
+      await def.execute("tc-6", { extra: { secret } });
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-privacy") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      const extra = payload.extra as Record<string, unknown>;
+      const hashed = extra.secret as string;
+      assert.notStrictEqual(hashed, secret);
+      assert.strictEqual(hashed, `${textLength(secret)}:${sha256(secret)}`);
+
+      const leaked = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE value_text = ?")
+        .get(secret) as { c: number };
+      assert.strictEqual(leaked.c, 0);
+    });
+
+    it("hashes non-slug target/map/slice values", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSkillInvoke(stub, t, "sess-tool-slug", "run-tool-slug", "turn-tool-slug");
+
+      const raw = "Not_A_Slug";
+      const def = findTool(stub);
+      await def.execute("tc-7", { target: raw });
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-slug") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, `${textLength(raw)}:${sha256(raw)}`);
+
+      const leaked = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE value_text = ?")
+        .get(raw) as { c: number };
+      assert.strictEqual(leaked.c, 0);
+    });
+
+    it("records a meta note for unserializable extra values and returns success", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSkillInvoke(stub, t, "sess-tool-badextra", "run-tool-badextra", "turn-tool-badextra");
+
+      const bad: Record<string, unknown> = {};
+      bad.self = bad;
+
+      const def = findTool(stub);
+      const result = await def.execute("tc-8", { extra: bad, sliceCount: 7 });
+      t.flush();
+
+      assert.deepStrictEqual((result as { content: unknown }).content, [{ type: "text", text: "Recorded." }]);
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-tool-badextra") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.slice_count, 7);
+      assert.deepStrictEqual(payload.extra, {});
+
+      const meta = db
+        .prepare("SELECT * FROM telemetry_meta WHERE session_id = ? AND event = 'handler_error' AND detail LIKE '%circular%'")
+        .get("sess-tool-badextra") as Record<string, unknown> | undefined;
+      assert.ok(meta, "expected handler_error meta row for circular extra");
+    });
+
+    it("does not throw when no session is active", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-tool-nosession");
+      t.state.sessionId = null;
+      t.state.runId = "run-nosession";
+      t.state.turnId = "turn-nosession";
+
+      const def = findTool(stub);
+      await assert.doesNotReject(async () => {
+        await def.execute("tc-9", { sliceCount: 1 });
+      });
+      t.flush();
+
+      const meta = db
+        .prepare("SELECT * FROM telemetry_meta WHERE event = 'handler_error'")
+        .all() as Array<Record<string, unknown>>;
+      assert.ok(meta.length > 0, "expected handler_error meta row");
+    });
+  });
 });
