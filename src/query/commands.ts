@@ -120,7 +120,6 @@ async function renderStatus(dbPath: string, t: Telemetry): Promise<string> {
     UNION ALL SELECT 'turns', COUNT(*) FROM turns
     UNION ALL SELECT 'llm_requests', COUNT(*) FROM llm_requests
     UNION ALL SELECT 'tool_executions', COUNT(*) FROM tool_executions
-    UNION ALL SELECT 'bash_executions', COUNT(*) FROM bash_executions
     UNION ALL SELECT 'session_events', COUNT(*) FROM session_events
     UNION ALL SELECT 'feedback', COUNT(*) FROM feedback
     UNION ALL SELECT 'telemetry_meta', COUNT(*) FROM telemetry_meta

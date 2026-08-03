@@ -11,7 +11,6 @@ import {
   registerTurnCapture,
   registerLlmCapture,
   registerToolCapture,
-  registerBashCapture,
   registerSessionEventsCapture,
 } from "./src/capture/index.ts";
 import { registerFeedback } from "./src/feedback.ts";
@@ -77,7 +76,6 @@ export default function piTelemetryExtension(pi: ExtensionAPI) {
   registerSessionCapture(pi, telemetry);
   registerLlmCapture(pi, telemetry);
   registerToolCapture(pi, telemetry);
-  registerBashCapture(pi, telemetry);
   registerSessionEventsCapture(pi, telemetry);
   registerFeedback(pi, telemetry);
   registerLineage(pi, telemetry);

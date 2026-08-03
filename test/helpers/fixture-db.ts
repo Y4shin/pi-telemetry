@@ -216,23 +216,6 @@ export function seedFixture(dbPath: string, options: FixtureOptions = {}): Datab
     },
   ];
 
-  const bash = [
-    {
-      bash_id: "bash-1",
-      session_id: "sess-root",
-      cwd: "/tmp/root",
-      started_unix_ms: now - 2 * dayMs + 300,
-      duration_ms: 150,
-      exit_code: 0,
-      cancelled: 0,
-      truncated: 0,
-      output_chars: 42,
-      exclude_from_context: 0,
-      command_chars: 12,
-      command_hash: "def456",
-    },
-  ];
-
   const feedback = [
     {
       feedback_id: "fb-1",
@@ -338,19 +321,6 @@ export function seedFixture(dbPath: string, options: FixtureOptions = {}): Datab
       x.tool_call_id, x.turn_id, x.run_id, x.session_id, x.tool_name, x.started_unix_ms,
       x.duration_ms, x.is_error, x.error_class, x.args_chars, x.result_chars, x.result_hash,
       x.args_json, x.result_text,
-    );
-  }
-
-  const insertBash = db.prepare(`
-    INSERT INTO bash_executions (
-      bash_id, session_id, cwd, started_unix_ms, duration_ms, exit_code,
-      cancelled, truncated, output_chars, exclude_from_context, command_chars, command_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  for (const b of bash) {
-    insertBash.run(
-      b.bash_id, b.session_id, b.cwd, b.started_unix_ms, b.duration_ms, b.exit_code,
-      b.cancelled, b.truncated, b.output_chars, b.exclude_from_context, b.command_chars, b.command_hash,
     );
   }
 
