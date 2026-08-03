@@ -4,7 +4,7 @@ type: feature
 slug: swt-compare-versions-queries
 title: Canned queries + /tm command to compare metrics across skills-package versions and skills
 map: skill-workflow-telemetry
-status: ready
+status: done
 blocked_by: []
 slices:
 - swt-skill-cost-preset
@@ -141,3 +141,31 @@ only for grouping dimensions. No new tables/migrations — pure read-only querie
 - Verification: `npm test` 216/216 across 33 suites; `npm run check` (tsc
   --noEmit) clean.
 - Deviation report: `docs/tasks/swt-compare-versions-queries/deviation-reports/swt-tm-skills-command.md`.
+
+### swt-skill-versions-preset (landed)
+
+- Added the `skill_versions` preset to `src/query/canned.ts`: a copy of slice
+  1's `skill_cost` SQL with the `-- {{verFilter:ver.value_text}}` marker added
+  after `WHERE se.type = 'skill_invoke'`. Added `verFilter?: string` to
+  `CannedFilters` (deferred from slice 1). `applyFilters` handles `verFilter` via
+  the generic `keyof CannedFilters` lookup — no special-casing.
+- Added `skill_versions` to `PRESET_NAMES` and a `version: Type.Optional(
+  Type.String(...))` tool parameter to `src/query/tool.ts`; `buildFilters` maps
+  `params.version → filters.verFilter`. Updated the `query_telemetry` and `query`
+  parameter descriptions to list `skill_versions` and `version`.
+- **Arch-spec divergence (approved):** the slice doc described `versionA`/
+  `versionB` params with a SQL-level delta. The approved arch spec Q1 decision
+  calls for a single `version` filter + two filtered queries with client-side
+  diff. Implemented the arch spec approach (authoritative where it conflicts).
+  The preset returns one version's `skill_cost` rows; the agent calls it twice
+  and computes the A/B delta client-side. No SQL UNION/self-join.
+- Tests: `test/canned.test.ts` (`skill_versions filters to a single version` —
+  exact rows for version `2.5.1`; `skill_versions uses indexes` — asserts no
+  `SCAN`, uses `idx_sems_key_text` + `idx_turns_run`), `test/tool.test.ts`
+  (integration: `query:"skill_versions"` + `version:"2.5.1"` returns two rows,
+  all version `2.5.1`). Reused the `test/helpers/fixture-skill-events.ts` seeder.
+- Verification: `node --test test/canned.test.ts` 15/15; `node --test
+  test/tool.test.ts` 19/19; `npm test` 219/219 across 33 suites; `npm run check`
+  (tsc --noEmit) clean.
+- Deviation report: `docs/tasks/swt-compare-versions-queries/deviation-reports/swt-skill-versions-preset.md`.
+- This was the last slice in the feature; all three slices now landed.
