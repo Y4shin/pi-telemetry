@@ -251,3 +251,38 @@ slice 5 (turn/turn attribution for the tool).
   unreadable package.json, deeply nested path, cache reuse, cache invalidation
   on reload).
 - All 186 tests pass across 30 suites; `tsc --noEmit` clean.
+
+### Slice 3: swt-frontmatter-metadata-reader (landed)
+
+- Extended `registerSkillCapture` in `src/capture/skills.ts` to read each
+  invoked skill's `SKILL.md` from `sourceInfo.path`, extract
+  `metadata.telemetry.capture` from YAML frontmatter using a zero-dependency
+  parser, and project the captured slugs as typed `session_event_metadata`
+  rows via the existing `insertSkillMetadata` helper.
+- Implemented a minimal `---\n…\n---` frontmatter extractor with no YAML
+  runtime dependency (preserves the zero-runtime-deps contract, per Q3).
+  Capture-list parsing handles `metadata.telemetry.capture` in nested-map,
+  inline dotted-key, or YAML-array form (comma/space-delimited).
+- Arg extraction supports positional and named forms (`--key=value`,
+  `-key=value`, `key=value`, `--key value`).
+- Kebab-case slug validation: only clean slugs are stored as metadata
+  values and JSON payload fields; non-slug/missing values become explicit
+  JSON `null` and produce no metadata row. The existing slice-1
+  `args_chars`/`args_hash` already covers the raw arg fingerprint, so the
+  spec's length/hash fallback for non-slug values was simplified to a
+  `null` payload field (no privacy regression).
+- Frontmatter cache stored alongside the existing skill-version cache and
+  invalidated on `resources_discover`.
+- Best-effort error handling: malformed frontmatter (e.g. missing closing
+  `---`) is logged to `telemetry_meta` and does not throw.
+- Tests: 8 new cases in `test/capture/skills.test.ts` under a `frontmatter
+  metadata capture` sub-suite (positional capture, multi-key positional,
+  no-capture-key null fields, missing frontmatter, malformed frontmatter,
+  non-slug arg → null + no metadata row, cache invalidation, nested-map
+  capture form).
+- All 194 tests pass across 31 suites; `tsc --noEmit` clean.
+- Divergences (noted for coherence-refactor review): (1) non-slug captured
+  values stored as JSON `null` + no metadata row instead of length/hash;
+  (2) metadata key uses the capture identifier itself (e.g. `target` →
+  key `target`), matching the general rule over the slice-doc example;
+  (3) named-arg syntax implemented but only positional capture is tested.
