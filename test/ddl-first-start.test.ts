@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../src/db.ts";
+import { openDatabase, MIGRATIONS } from "../src/db.ts";
 
 const WORKER_COUNT = 5;
 const READY_TIMEOUT_MS = 30_000;
@@ -129,7 +129,7 @@ describe("idempotent schema init", () => {
       ).n;
       db.close();
 
-      assert.strictEqual(version, 2, "schema version should be 2 after concurrent first-starts");
+      assert.strictEqual(version, MIGRATIONS.length, `schema version should be ${MIGRATIONS.length} after concurrent first-starts`);
       assert.ok(tableCount > 0, "schema tables should exist after concurrent first-starts");
     } finally {
       for (const suffix of ["", "-wal", "-shm"]) {
