@@ -1,5 +1,20 @@
 # Task Changelog
 
+## 2026-08-03 — Map finalized: skill-workflow-telemetry
+
+All 6 children complete: research (findings on the `input` seam, version
+discovery, self-declaration mechanisms), grilling (6 decisions settled), schema
+prototype (chose Option D sparse EAV + CHECK constraint over generated columns
+for migration-free universal typed metadata), Feature A (skill-invocation capture:
+`input` handler + `session_event_metadata` sparse EAV + skills-package version
++ frontmatter `metadata.capture` + `telemetry_skill_context` tool with explicit
+`skill_name` correlation + `turn_start` back-fill), manual (skills SKILL.md edits,
+uncommitted for user sync), Feature B (`skill_cost`/`skill_versions` presets +
+`/tm skills`). Outcome: pi-telemetry can now attribute metrics to a
+skills-package version and a skill invocation + target, and compare across
+versions/skills via canned queries. 219 tests green, tsc clean, zero new
+runtime deps. Map archived.
+
 ## 2026-08-03 — Compare-versions queries (swt-compare-versions-queries)
 
 Feature B of the skill-workflow-telemetry map. Adds the `skill_cost` and
