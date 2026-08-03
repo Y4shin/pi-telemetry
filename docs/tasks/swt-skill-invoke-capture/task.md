@@ -367,3 +367,24 @@ slice 5 (turn/turn attribution for the tool).
   type-preservation pattern coexists with slices 2/3's `json_quote(?)` pattern —
   both correct for their contexts, should be reviewed for consistency during
   the coherence refactor.
+
+### Coherence refactor (Step 3)
+
+- **`run_id` stored three ways** (cross-slice): the JSON payload, the native
+  `session_events.run_id` column (migration 4, added by slice 5), and the
+  `session_event_metadata` row (key=`run_id`, projected by slices 5). Kept
+  all three: the native column is the efficient join path (`idx_sev_run`);
+  the metadata row preserves the universal sparse-EAV projection; the JSON
+  payload is the source of truth. **Feature B queries should join on
+  `session_events.run_id` (native column), NOT the metadata-pivot join** —
+  update the Feature B slice docs when that task runs.
+- **`json_set` pattern consistency:** slice 2/3 use `json_set(payload, '$.k',
+  json_quote(?))` (strings); slice 4 uses `json_set(payload, '$.k', json(?))` via
+  `jsonLiteral()` (preserves numeric/boolean types). Both are correct for
+  their value types; left as-is (not worth unifying — the helpers serve
+  different type needs).
+- **`textLength` (byte-length) for `args_chars`** (slice 1): consistent with
+  the established `tools.ts` convention (`Buffer.byteLength`), not a
+  deviation. No change.
+- No out-of-scope refactors needed; Feature A is internally consistent. Final
+  suite: 207 tests green, `tsc --noEmit` clean.
