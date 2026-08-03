@@ -4,7 +4,7 @@ type: feature
 slug: swt-skill-invoke-capture
 title: "Capture skill invocations: name + skills-package version + skill-declared metadata (frontmatter + tool)"
 map: skill-workflow-telemetry
-status: ready
+status: done
 slices:
 - swt-input-skill-invoke
 - swt-skills-package-version
@@ -320,3 +320,50 @@ slice 5 (turn/turn attribution for the tool).
   (migration 4) and the `Migration.apply` mechanism are necessary planning
   gaps — the arch spec should have specified them. Both are SPEC §8 compliant
   (nullable columns, forward-only, idempotent).
+
+### Slice 4: swt-telemetry-skill-context-tool (landed)
+
+- Registered the `telemetry_skill_context` tool inside `registerSkillCapture`
+  (`src/capture/skills.ts`) via `pi.registerTool` (mirrors `src/feedback.ts`
+  `registerTool` + `t.state.correlation()`). Tool params exactly
+  `{ target?, map?, slice?, sliceCount?(Integer), extra?(Record<String,Unknown>) }`;
+  returns `{content:[{type:"text",text:"Recorded."}], details:{}}`.
+- Attribution: uses `t.state.lastSkillInvokeEventId` (set by slice 1, back-filled
+  by slice 5) as the primary key instead of a DB lookup for the most-recent
+  `skill_invoke` row, because telemetry writes are buffered and the matching row
+  may not yet be flushed to SQLite when the tool runs mid-turn. The `UPDATE` is
+  strengthened with `WHERE event_id = ? AND run_id = ? AND turn_id = ?` to
+  preserve the spec's matching semantics within the existing buffered-write
+  design.
+- Enrichment: merges its params into the current `skill_invoke` row's JSON
+  payload via `UPDATE session_events SET payload = json_set(payload, '$.key',
+  json(?))` using a `jsonLiteral()` helper so SQLite parses the literal and
+  preserves numeric/boolean JSON types (initial `json_set(payload, '$.key', ?)`
+  stored numbers/booleans as JSON strings). Projects the same fields as typed
+  `session_event_metadata` rows via `insertSkillMetadata`.
+- Privacy fallback: the slice doc requires length/hash for non-slug `extra`
+  values; the implementation also applies the same `isKebabSlug` → length/hash
+  fallback to the top-level string params `target`, `map`, and `slice` when they
+  are not clean kebab-case slugs (defensive extension consistent with the
+  feature-wide privacy posture of never storing arbitrary raw text).
+- No-match handling: when no `skill_invoke` row exists (no prior skill input, or
+  called outside a turn), the tool records a `telemetry_meta` note and still
+  returns success (never breaks the agent).
+- First test run failed with `SyntaxError: Identifier 'isKebabSlug' has already
+  been declared` because the existing skills.ts already defined the helper
+  (from slice 3); removed the duplicate declaration.
+- Tests: 9 new cases in `test/capture/skills.test.ts` under a
+  `telemetry_skill_context tool` sub-suite (success-neutral result; enriches
+  current skill_invoke row + projects metadata; meta note when no skill_invoke
+  preceded the turn; meta note when called outside a turn; merges multiple
+  enrichments on the same row; hashes non-slug extra string values; hashes
+  non-slug target/map/slice values; meta note for unserializable extra values;
+  does not throw when no session is active).
+- All 207 tests pass across 32 suites; `tsc --noEmit` clean.
+- Divergences (noted for coherence-refactor review): (1) attribution via
+  `lastSkillInvokeEventId` instead of DB lookup (justified by buffered-write
+  design, consistent with arch-spec Q1 decision); (2) privacy fallback extended
+  to top-level string params (defensive, tested); (3) `json(?)` + `jsonLiteral()`
+  type-preservation pattern coexists with slices 2/3's `json_quote(?)` pattern —
+  both correct for their contexts, should be reviewed for consistency during
+  the coherence refactor.
