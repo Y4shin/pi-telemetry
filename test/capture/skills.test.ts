@@ -10,7 +10,7 @@ import { registerSkillCapture, resetSkillVersionCache } from "../../src/capture/
 import { sha256, textLength } from "../../src/hash.ts";
 import type { TelemetryConfig } from "../../src/config.ts";
 import { createL1Stub } from "../helpers/l1-stub.ts";
-import type { InputEvent, ExtensionContext, ExtensionAPI, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type { InputEvent, ExtensionContext, ExtensionAPI, SlashCommandInfo, TurnStartEvent } from "@earendil-works/pi-coding-agent";
 
 function makeConfig(dbPath: string): TelemetryConfig {
   return {
@@ -535,6 +535,136 @@ describe("registerSkillCapture input handler", () => {
       assert.strictEqual(rows.length, 2);
       assert.strictEqual(JSON.parse(rows[0].payload).skills_package_version, "2.5.1");
       assert.strictEqual(JSON.parse(rows[1].payload).skills_package_version, "3.0.0");
+    });
+  });
+
+  describe("turn_start backfill", () => {
+    function turnStartEvent(turnIndex: number): TurnStartEvent {
+      return { type: "turn_start", turnIndex, timestamp: Date.now() };
+    }
+
+    it("sets run_id/turn_id/turn_index on the most-recent skill_invoke row", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-backfill-1");
+
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+
+      const before = db
+        .prepare("SELECT event_id, run_id, turn_id, turn_index FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-backfill-1") as { event_id: string; run_id: string | null; turn_id: string | null; turn_index: number | null };
+      assert.strictEqual(before.run_id, null);
+      assert.strictEqual(before.turn_id, null);
+      assert.strictEqual(before.turn_index, null);
+
+      const runId = "run-111";
+      const turnId = "turn-222";
+      t.state.runId = runId;
+      t.state.turnId = turnId;
+      t.state.turnIndex = 3;
+      await stub.fire("turn_start", turnStartEvent(3));
+      t.flush();
+
+      const after = db
+        .prepare("SELECT event_id, run_id, turn_id, turn_index FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-backfill-1") as { event_id: string; run_id: string; turn_id: string; turn_index: number };
+      assert.strictEqual(after.run_id, runId);
+      assert.strictEqual(after.turn_id, turnId);
+      assert.strictEqual(after.turn_index, 3);
+
+      const meta = db
+        .prepare("SELECT key, type, value_text FROM session_event_metadata WHERE event_id = ? ORDER BY key")
+        .all(after.event_id) as Array<{ key: string; type: string; value_text: string | null }>;
+      const runMeta = meta.find((m) => m.key === "run_id");
+      assert.ok(runMeta, "expected run_id metadata row");
+      assert.strictEqual(runMeta.type, "string");
+      assert.strictEqual(runMeta.value_text, runId);
+    });
+
+    it("does not touch skill_invoke rows when no skill input preceded the turn", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-backfill-none");
+
+      t.state.runId = "run-333";
+      t.state.turnId = "turn-444";
+      t.state.turnIndex = 1;
+      await stub.fire("turn_start", turnStartEvent(1));
+      t.flush();
+
+      const count = db
+        .prepare("SELECT COUNT(*) AS c FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-backfill-none") as { c: number };
+      assert.strictEqual(count.c, 0);
+    });
+
+    it("back-fills only the most-recent of two skill inputs before one turn", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-backfill-multi");
+
+      await stub.fire("input", inputEvent("/skill:first alpha", "interactive"));
+      await stub.fire("input", inputEvent("/skill:second beta", "interactive"));
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT event_id, payload, run_id, turn_id, turn_index FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid")
+        .all("sess-backfill-multi") as Array<{ event_id: string; payload: string; run_id: string | null; turn_id: string | null; turn_index: number | null }>;
+      assert.strictEqual(rows.length, 2);
+      const older = rows[0];
+      const newer = rows[1];
+
+      const runId = "run-555";
+      const turnId = "turn-666";
+      t.state.runId = runId;
+      t.state.turnId = turnId;
+      t.state.turnIndex = 2;
+      await stub.fire("turn_start", turnStartEvent(2));
+      t.flush();
+
+      const updated = db
+        .prepare("SELECT event_id, run_id, turn_id, turn_index FROM session_events WHERE event_id = ?")
+        .get(newer.event_id) as { event_id: string; run_id: string | null; turn_id: string | null; turn_index: number | null };
+      assert.strictEqual(updated.run_id, runId);
+      assert.strictEqual(updated.turn_id, turnId);
+      assert.strictEqual(updated.turn_index, 2);
+
+      const stale = db
+        .prepare("SELECT event_id, run_id, turn_id, turn_index FROM session_events WHERE event_id = ?")
+        .get(older.event_id) as { event_id: string; run_id: string | null; turn_id: string | null; turn_index: number | null };
+      assert.strictEqual(stale.run_id, null);
+      assert.strictEqual(stale.turn_id, null);
+      assert.strictEqual(stale.turn_index, null);
+    });
+
+    it("is a no-op when there is no active session", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-backfill-nosession");
+
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+
+      const before = db
+        .prepare("SELECT event_id FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-backfill-nosession") as { event_id: string };
+
+      t.state.sessionId = null;
+      t.state.runId = "run-777";
+      t.state.turnId = "turn-888";
+      t.state.turnIndex = 1;
+      await assert.doesNotReject(async () => {
+        await stub.fire("turn_start", turnStartEvent(1));
+      });
+      t.flush();
+
+      const after = db
+        .prepare("SELECT run_id, turn_id, turn_index FROM session_events WHERE event_id = ?")
+        .get(before.event_id) as { run_id: string | null; turn_id: string | null; turn_index: number | null };
+      assert.strictEqual(after.run_id, null);
+      assert.strictEqual(after.turn_id, null);
+      assert.strictEqual(after.turn_index, null);
     });
   });
 

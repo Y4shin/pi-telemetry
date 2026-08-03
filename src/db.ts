@@ -164,6 +164,33 @@ export interface Migration {
   readonly version: number;
   readonly description: string;
   readonly sql: string;
+  /** Optional JavaScript apply function. When present, it is called instead of
+   *  executing `sql`. Use for migrations that need conditional DDL (e.g.
+   *  adding columns only if they are missing) so they stay idempotent under
+   *  concurrent first-starts. */
+  readonly apply?: (db: DatabaseSync) => void;
+}
+
+function addColumnIfMissing(
+  db: DatabaseSync,
+  table: string,
+  column: string,
+  def: string,
+): void {
+  const columns = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as Array<{ name: string }>;
+  if (columns.some((c) => c.name === column)) return;
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Another concurrent first-start may have added the column between the
+    // pragma check and the ALTER. Treat that as success.
+    if (!msg.toLowerCase().includes("duplicate column name")) {
+      throw err;
+    }
+  }
 }
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -206,6 +233,22 @@ CREATE INDEX IF NOT EXISTS idx_sems_key_text ON session_event_metadata(key, valu
 CREATE INDEX IF NOT EXISTS idx_sems_key_int  ON session_event_metadata(key, value_int);
 CREATE INDEX IF NOT EXISTS idx_turns_run ON turns(run_id);`,
   },
+  {
+    version: 4,
+    description: "add run_id/turn_id/turn_index to session_events for skill_invoke attribution",
+    sql: `ALTER TABLE session_events ADD COLUMN run_id TEXT;
+ALTER TABLE session_events ADD COLUMN turn_id TEXT;
+ALTER TABLE session_events ADD COLUMN turn_index INTEGER;
+CREATE INDEX IF NOT EXISTS idx_sev_run ON session_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_sev_turn ON session_events(turn_id);`,
+    apply(db) {
+      addColumnIfMissing(db, "session_events", "run_id", "TEXT");
+      addColumnIfMissing(db, "session_events", "turn_id", "TEXT");
+      addColumnIfMissing(db, "session_events", "turn_index", "INTEGER");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_sev_run ON session_events(run_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_sev_turn ON session_events(turn_id)");
+    },
+  },
 ];
 
 function isBusyError(err: unknown): boolean {
@@ -247,7 +290,11 @@ export function openDatabase(
     const current = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
     for (const migration of MIGRATIONS) {
       if (migration.version > current) {
-        db.exec(migration.sql);
+        if (migration.apply) {
+          migration.apply(db);
+        } else {
+          db.exec(migration.sql);
+        }
         db.exec(`PRAGMA user_version = ${migration.version}`);
       }
     }
