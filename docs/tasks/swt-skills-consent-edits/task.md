@@ -5,7 +5,7 @@ slug: swt-skills-consent-edits
 title: "Add telemetry metadata.capture keys + telemetry_skill_context call prose to task-workflow SKILL.md files (no commit, no install)"
 map: skill-workflow-telemetry
 status: ready
-blocked_by: [swt-skill-invoke-capture]
+blocked_by: []
 ---
 
 ## Exact prerequisite
