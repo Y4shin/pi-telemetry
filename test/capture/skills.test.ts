@@ -537,4 +537,255 @@ describe("registerSkillCapture input handler", () => {
       assert.strictEqual(JSON.parse(rows[1].payload).skills_package_version, "3.0.0");
     });
   });
+
+  describe("frontmatter metadata capture", () => {
+    it("populates a single captured slug from positional args", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter", "skills", "implement-task");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target\n---\n# implement-task\n",
+      );
+      writePackageJson(join(tmp, "frontmatter"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("implement-task", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-1");
+
+      await stub.fire("input", inputEvent("/skill:implement-task pi-telemetry", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-1") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, "pi-telemetry");
+
+      const meta = db
+        .prepare("SELECT key, type, value_text FROM session_event_metadata WHERE event_id = ? ORDER BY key")
+        .all(row.event_id) as Array<{ key: string; type: string; value_text: string | null }>;
+      const targetMeta = meta.find((m) => m.key === "target");
+      assert.ok(targetMeta, "expected target metadata row");
+      assert.strictEqual(targetMeta.type, "string");
+      assert.strictEqual(targetMeta.value_text, "pi-telemetry");
+    });
+
+    it("populates multiple captured slugs positionally", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter-multi", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target,map\n---\n# foo\n",
+      );
+      writePackageJson(join(tmp, "frontmatter-multi"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-2");
+
+      await stub.fire("input", inputEvent("/skill:foo mytask mymap", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-2") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, "mytask");
+      assert.strictEqual(payload.map, "mymap");
+
+      const meta = db
+        .prepare("SELECT key, value_text FROM session_event_metadata WHERE event_id = ? ORDER BY key")
+        .all(row.event_id) as Array<{ key: string; value_text: string | null }>;
+      const captured = meta.filter((m) => m.key === "target" || m.key === "map");
+      assert.strictEqual(captured.length, 2);
+      assert.strictEqual(captured[0].key, "map");
+      assert.strictEqual(captured[0].value_text, "mymap");
+      assert.strictEqual(captured[1].key, "target");
+      assert.strictEqual(captured[1].value_text, "mytask");
+    });
+
+    it("leaves capture fields null when SKILL.md has no capture key", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter-none", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "---\nmetadata:\n  telemetry: {}\n---\n# foo\n");
+      writePackageJson(join(tmp, "frontmatter-none"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-none");
+
+      await stub.fire("input", inputEvent("/skill:foo mytask", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-none") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, undefined);
+
+      const count = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE event_id = ? AND key = 'target'")
+        .get(row.event_id) as { c: number };
+      assert.strictEqual(count.c, 0);
+    });
+
+    it("supports named capture with --key=value syntax", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter-named", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target,map\n---\n# foo\n",
+      );
+      writePackageJson(join(tmp, "frontmatter-named"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-named");
+
+      await stub.fire("input", inputEvent("/skill:foo --target=pi-telemetry mymap", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-named") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, "pi-telemetry");
+      assert.strictEqual(payload.map, "mymap");
+    });
+
+    it("stores a JSON null when a captured arg is missing", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter-missing", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target,map\n---\n# foo\n",
+      );
+      writePackageJson(join(tmp, "frontmatter-missing"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-missing");
+
+      await stub.fire("input", inputEvent("/skill:foo only-one", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-missing") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, "only-one");
+      assert.strictEqual(payload.map, null);
+
+      const count = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE event_id = ? AND key = 'map'")
+        .get(row.event_id) as { c: number };
+      assert.strictEqual(count.c, 0);
+    });
+
+    it("skips non-slug captured values and stores a JSON null", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter-privacy", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target\n---\n# foo\n",
+      );
+      writePackageJson(join(tmp, "frontmatter-privacy"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-privacy");
+
+      const raw = "not_a_slug";
+      await stub.fire("input", inputEvent(`/skill:foo ${raw}`, "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-privacy") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, null);
+
+      const count = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE event_id = ? AND key = 'target'")
+        .get(row.event_id) as { c: number };
+      assert.strictEqual(count.c, 0);
+
+      const leaked = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE value_text LIKE ?")
+        .get(`%${raw}%`) as { c: number };
+      assert.strictEqual(leaked.c, 0);
+    });
+
+    it("invalidates frontmatter cache on resources_discover reload", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter-reload", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target\n---\n# foo\n",
+      );
+      writePackageJson(join(tmp, "frontmatter-reload"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-reload");
+
+      await stub.fire("input", inputEvent("/skill:foo alpha", "interactive"));
+      t.flush();
+
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target,map\n---\n# foo\n",
+      );
+      await stub.fire("resources_discover", { type: "resources_discover", cwd: "/tmp/proj", reason: "reload" });
+
+      await stub.fire("input", inputEvent("/skill:foo beta gamma", "interactive"));
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid")
+      .all("sess-frontmatter-reload") as Array<{ payload: string }>;
+      assert.strictEqual(rows.length, 2);
+      assert.strictEqual(JSON.parse(rows[0].payload).target, "alpha");
+      assert.strictEqual(JSON.parse(rows[1].payload).target, "beta");
+      assert.strictEqual(JSON.parse(rows[1].payload).map, "gamma");
+    });
+
+    it("does not throw on malformed frontmatter", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter-bad", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "---\nmetadata:\n  telemetry:\n    capture: target\n");
+      writePackageJson(join(tmp, "frontmatter-bad"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-bad");
+
+      await assert.doesNotReject(async () => {
+        await stub.fire("input", inputEvent("/skill:foo pi-telemetry", "interactive"));
+      });
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-bad") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, undefined);
+    });
+  });
 });
