@@ -4,7 +4,7 @@ slug: swt-turn-start-backfill
 title: "turn_start back-fills run_id/turn_id/turn_index on the session's most-recent un-attributed skill_invoke row"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: s
 blocked_by: [swt-input-skill-invoke]
 ---
