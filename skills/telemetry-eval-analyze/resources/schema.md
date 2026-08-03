@@ -63,7 +63,12 @@ pandas datetime with `pd.to_datetime(df['started_unix_ms'], unit='ms')`.
 - **Timestamps:** `started_unix_ms` INTEGER NOT NULL, `duration_ms`
 - **Indexes:** `idx_tool_session(session_id)`, `idx_tool_name(tool_name)`
 
-### `bash_executions`
+### `bash_executions` — DEPRECATED
+
+**Deprecated (task: deprecate-bash-executions).** Current versions no longer
+write to or read from this table, so it will be empty or absent in databases
+owned by up-to-date agents. The DDL is retained for backward compatibility
+with older extension versions.
 
 - **PK:** `bash_id` TEXT
 - **Join key:** `session_id` TEXT NOT NULL
@@ -110,7 +115,7 @@ sessions 1--* agent_runs    ON agent_runs.session_id = sessions.session_id
 agent_runs 1--* turns         ON turns.run_id = agent_runs.run_id
 turns 1--* llm_requests       ON llm_requests.turn_id = turns.turn_id
 turns 1--* tool_executions    ON tool_executions.turn_id = turns.turn_id
-sessions 1--* bash_executions ON bash_executions.session_id = sessions.session_id
+sessions 1--* bash_executions ON bash_executions.session_id = sessions.session_id  -- DEPRECATED (task: deprecate-bash-executions); table is empty/absent in current versions
 sessions 1--* session_events  ON session_events.session_id = sessions.session_id
 sessions 1--* feedback        ON feedback.session_id = sessions.session_id
 ```

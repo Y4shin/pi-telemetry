@@ -88,7 +88,13 @@ error_class (bounded category, not message), args_chars, result_chars,
 result_hash. Optional `args_json` / `result_text` columns populated only when
 capture flags enabled (default off).
 
-### 1.6 User bash (`!` / `!!`)
+### 1.6 User bash (`!` / `!!`) — DEPRECATED
+
+**Deprecated (task: deprecate-bash-executions).** The `user_bash` capture
+path has been removed and current code no longer writes to or reads from the
+`bash_executions` table. The table DDL is retained for backward compatibility
+with older in-flight extension versions and will be dropped in a later task
+once all running agents have upgraded.
 
 Source: `user_bash`, wrapping `createLocalBashOperations()` to time execution.
 
@@ -241,6 +247,10 @@ CREATE TABLE IF NOT EXISTS tool_executions (
 CREATE INDEX IF NOT EXISTS idx_tool_session ON tool_executions(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_name    ON tool_executions(tool_name);
 
+-- DEPRECATED (task: deprecate-bash-executions): retained for backward
+-- compatibility with older extension versions. The `user_bash` capture path
+-- has been removed; current versions do not write to or read from this table.
+-- Drop this DDL in a later task once all running agents have upgraded.
 CREATE TABLE IF NOT EXISTS bash_executions (
   bash_id           TEXT PRIMARY KEY,
   session_id        TEXT NOT NULL,
@@ -477,7 +487,7 @@ under `pi-telemetry`, env-var overrides:
 | `bufferMaxRows` | 50 | |
 | `feedbackMaxBytes` | 65536 | |
 | `capture.toolArgs` / `capture.toolResults` | false | redaction pass planned before enabling |
-| `capture.bashCommand` | false | v1 records hash only; flag reserved |
+| `capture.bashCommand` | false | **Deprecated (task: deprecate-bash-executions).** Reserved / dead flag kept for backward compatibility; the `bash_executions` capture path has been removed. |
 
 Privacy defaults: no prompts, no tool content, no command text, no file paths
 (lengths/hashes). Content flags ship disabled; enabling shows a one-time
