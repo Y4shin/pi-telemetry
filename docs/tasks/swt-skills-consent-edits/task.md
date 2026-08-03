@@ -2,9 +2,9 @@
 kind: task
 type: manual
 slug: swt-skills-consent-edits
-title: "Add telemetry metadata.capture keys + telemetry_skill_context call prose to task-workflow SKILL.md files (no commit, no install)"
+title: Add telemetry metadata.capture keys + telemetry_skill_context call prose to task-workflow SKILL.md files (no commit, no install)
 map: skill-workflow-telemetry
-status: ready
+status: done
 blocked_by: []
 ---
 
@@ -71,3 +71,37 @@ grilling decision 2). The user performs the commit and the install themselves.
   kebab-case-safe keys).
 - Do not edit the installed copy
   (`~/.pi/agent/git/github.com/Y4shin/skills`) — the user syncs it themselves.
+
+## Execution report (2026-08-03)
+
+Performed by the agent in `/home/pplattner/Projects/skills` after `git pull`
+(clean tree, up to date). Edits left as **unstaged working-tree changes** —
+NOT committed, NOT installed (per user constraint). The user will review,
+commit, and sync to the installed copy themselves.
+
+| Skill | `metadata.telemetry.capture` | Prose line added | Rationale |
+|---|---|---|---|
+| `implement-task` | `"target"` | call `telemetry_skill_context` mid-run with `{ target, sliceCount }` (and `map` when known) | First positional arg = task/map slug; static capture at invoke time + dynamic slice count mid-run. |
+| `finalize-task` | `"target"` | call `telemetry_skill_context` mid-run with `{ target }` (and `map` when the task belongs to a map) | First positional arg = task slug. |
+| `wayfinder` | _(none)_ | once the map slug is known, call `telemetry_skill_context` with `{ map }` (and `target`/`slice` when focused) | No clean positional slug at invoke time (the map slug is created mid-session); capture is dynamic-only via the tool. |
+| `report-bug` | _(none)_ | once the bug slug is derived, call `telemetry_skill_context` with `{ target }` (the bug slug) | Arg is free-form text, not a slug; the bug slug is derived mid-run, so capture is dynamic-only via the tool. |
+
+**Skipped skills (no useful target to capture):** `create-task` (retired
+compatibility redirect), `onboard-workflow` (no target arg — initializes a
+repo), `task-overview` (read-only router), `refine-idea` (idea slug is
+fleshed out during the session, not a clean invoke-time slug). These could
+be added later if a target dimension becomes useful.
+
+**Evidence:** `git status` in `/home/pplattner/Projects/skills` shows the 4
+SKILL.md files as modified, unstaged. `git diff` shows only the intended
+frontmatter `metadata` + prose additions; no unrelated changes, no commits,
+no install artifacts.
+
+**Remaining risks / follow-up:**
+- The edits are inert until the user commits + syncs them into the installed
+  copy (`~/.pi/agent/git/github.com/Y4shin/skills`); until then, live
+  `/skill:` invocations won't carry `metadata.capture` or the tool-call prose.
+- Feature B (`swt-compare-versions-queries`) can now be unblocked — the
+  capture capability + the skills opt-in are both in place (once the user
+  syncs). Real per-target comparison data will flow after the first
+  post-sync invocation.
