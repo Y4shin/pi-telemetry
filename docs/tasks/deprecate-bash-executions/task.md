@@ -119,3 +119,16 @@ Removed the `bash_executions` live write/read path and all test references.
 - `src/db.ts` DDL and `test/db.test.ts` left untouched as required.
 
 Validation: `tsc --noEmit` clean; `npm test` 147/147 green; `rg "bash_executions|registerBashCapture|capture/bash" src/ test/` returns only the intentional residuals (`src/db.ts` DDL, `test/db.test.ts` table references).
+
+### Slice `mark-bash-executions-deprecated` — landed
+
+Added deprecation comments and documentation-only notes referencing task slug
+`deprecate-bash-executions` for the `bash_executions` table and the
+`capture.bashCommand` config flag. No code behavior or DDL was changed.
+- `src/db.ts`: deprecation comment immediately above the `CREATE TABLE IF NOT EXISTS bash_executions` block (DDL verbatim).
+- `src/config.ts`: deprecation comments on the `bashCommand` field in `CaptureConfig`, the `DEFAULTS.capture.bashCommand` default, and the parse block (field, default, and parse logic verbatim).
+- `SPEC.md` §1.6 marked deprecated; the `bash_executions` DDL block marked deprecated; the `capture.bashCommand` config-table row marked deprecated.
+- `docs/bugs/bash-executions-not-captured.md`: verdict and fix-summary updated to reference the deprecation decision.
+- `skills/telemetry-eval-analyze/resources/schema.md`: `bash_executions` table section and its join-map line marked deprecated.
+
+Validation: `tsc --noEmit` clean; `npm test` 147/147 green; diff audit confirmed comment-only changes in `src/db.ts` and `src/config.ts` (no non-comment code changes). No divergence from plan.
