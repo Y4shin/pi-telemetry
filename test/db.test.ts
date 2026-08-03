@@ -69,7 +69,7 @@ describe("db", () => {
     db.close();
   });
 
-  it("migrates an existing v2 database to v3 by adding session_event_metadata", () => {
+  it("migrates an existing v2 database to latest by adding session_event_metadata and session_events attribution columns", () => {
     const v2Db = new DatabaseSync(dbPath);
     v2Db.exec(`
       CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_unix_ms INTEGER NOT NULL);
@@ -94,7 +94,7 @@ describe("db", () => {
     const version = db.prepare("PRAGMA user_version").get() as {
       user_version: number;
     };
-    assert.strictEqual(version.user_version, 3);
+    assert.strictEqual(version.user_version, MIGRATIONS.length);
     const hasMeta = (
       db
         .prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='session_event_metadata'")
@@ -105,6 +105,13 @@ describe("db", () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_sems_%'")
       .all() as Array<{ name: string }>;
     assert.deepStrictEqual(indexes.map((r) => r.name).sort(), ["idx_sems_key_int", "idx_sems_key_text"]);
+    const columns = db
+      .prepare("PRAGMA table_info(session_events)")
+      .all() as Array<{ name: string }>;
+    const columnNames = columns.map((c) => c.name);
+    assert.ok(columnNames.includes("run_id"));
+    assert.ok(columnNames.includes("turn_id"));
+    assert.ok(columnNames.includes("turn_index"));
     const preserved = db
       .prepare("SELECT type, payload FROM session_events WHERE event_id = ?")
       .get("evt-pre-v3") as { type: string; payload: string };
