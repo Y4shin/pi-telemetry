@@ -1,16 +1,16 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../../src/db.ts";
 import { createBuffer } from "../../src/buffer.ts";
-import { registerSkillCapture } from "../../src/capture/skills.ts";
+import { registerSkillCapture, resetSkillVersionCache } from "../../src/capture/skills.ts";
 import { sha256, textLength } from "../../src/hash.ts";
 import type { TelemetryConfig } from "../../src/config.ts";
 import { createL1Stub } from "../helpers/l1-stub.ts";
-import type { InputEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { InputEvent, ExtensionContext, ExtensionAPI, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 function makeConfig(dbPath: string): TelemetryConfig {
   return {
@@ -46,6 +46,7 @@ describe("registerSkillCapture input handler", () => {
   });
 
   async function setupSession(stub: ReturnType<typeof createL1Stub>, t: ReturnType<typeof createBuffer>, sessionId: string) {
+    resetSkillVersionCache();
     registerSkillCapture(stub.pi, t);
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => sessionId } as unknown as ExtensionContext["sessionManager"],
@@ -53,6 +54,19 @@ describe("registerSkillCapture input handler", () => {
     });
     t.state.sessionId = sessionId;
     t.flush();
+  }
+
+  function makeSkillCommand(name: string, skillPath: string, baseDir: string): SlashCommandInfo {
+    return {
+      name: `skill:${name}`,
+      description: `${name} skill`,
+      source: "skill",
+      sourceInfo: { path: skillPath, source: "git", scope: "user", origin: "package", baseDir },
+    };
+  }
+
+  function writePackageJson(dir: string, pkg: { name?: string; version?: string }): void {
+    writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
   }
 
   it("records a skill_invoke row for /skill:foo bar baz", async () => {
@@ -320,5 +334,207 @@ describe("registerSkillCapture input handler", () => {
       await stub.fire("input", inputEvent("/skill:\u0000weird", "interactive"));
     });
     t.flush();
+  });
+
+  describe("skills package version", () => {
+    it("stamps skill_source and skills_package_version from package.json", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "pkg", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      writePackageJson(join(tmp, "pkg"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-1");
+
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-version-1") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.skill_source, "task-workflow");
+      assert.strictEqual(payload.skills_package_version, "2.5.1");
+
+      const meta = db
+        .prepare("SELECT key, type, value_text FROM session_event_metadata WHERE event_id = (SELECT event_id FROM session_events WHERE session_id = ? AND type = 'skill_invoke')")
+        .all("sess-version-1") as Array<{ key: string; type: string; value_text: string | null }>;
+      const versionMeta = meta.find((m) => m.key === "skills_package_version");
+      assert.ok(versionMeta, "expected skills_package_version metadata row");
+      assert.strictEqual(versionMeta.type, "string");
+      assert.strictEqual(versionMeta.value_text, "2.5.1");
+    });
+
+    it("produces nulls when skill has no enclosing package.json", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "orphan", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-orphan");
+
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-version-orphan") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.skill_source, null);
+      assert.strictEqual(payload.skills_package_version, null);
+
+      const meta = db
+        .prepare("SELECT COUNT(*) AS c FROM session_event_metadata WHERE event_id = (SELECT event_id FROM session_events WHERE session_id = ? AND type = 'skill_invoke') AND key = 'skills_package_version'")
+        .get("sess-version-orphan") as { c: number };
+      assert.strictEqual(meta.c, 0);
+
+      const metaError = db
+        .prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE event = 'handler_error'")
+        .get() as { c: number };
+      assert.strictEqual(metaError.c, 0);
+    });
+
+    it("produces null version when package.json has no version field", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "no-version", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      writePackageJson(join(tmp, "no-version"), { name: "task-workflow" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-noversion");
+
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-version-noversion") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.skill_source, "task-workflow");
+      assert.strictEqual(payload.skills_package_version, null);
+    });
+
+    it("produces nulls when package.json is unreadable", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "bad-json", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      writeFileSync(join(tmp, "bad-json", "package.json"), "{ not valid json");
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-badjson");
+
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-version-badjson") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.skill_source, null);
+      assert.strictEqual(payload.skills_package_version, null);
+    });
+
+    it("resolves version from a deeply nested skill sourceInfo.path", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "deep", "skills", "category", "implement-task");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# implement-task");
+      writePackageJson(join(tmp, "deep"), { name: "task-workflow", version: "2.4.0" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("implement-task", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-deep");
+
+      await stub.fire("input", inputEvent("/skill:implement-task target", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-version-deep") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.skill_source, "task-workflow");
+      assert.strictEqual(payload.skills_package_version, "2.4.0");
+    });
+
+    it("caches package.json reads across repeated invocations", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "cache", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      const pkgDir = join(tmp, "cache");
+      writePackageJson(pkgDir, { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-cache");
+
+      await stub.fire("input", inputEvent("/skill:foo first", "interactive"));
+      await stub.fire("input", inputEvent("/skill:foo second", "interactive"));
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid")
+        .all("sess-version-cache") as Array<{ payload: string }>;
+      assert.strictEqual(rows.length, 2);
+      for (const row of rows) {
+        const payload = JSON.parse(row.payload) as Record<string, unknown>;
+        assert.strictEqual(payload.skills_package_version, "2.5.1");
+      }
+
+      // Mutate the package.json; a cached lookup would still report the old version.
+      writePackageJson(pkgDir, { name: "task-workflow", version: "3.0.0" });
+      await stub.fire("input", inputEvent("/skill:foo third", "interactive"));
+      t.flush();
+
+      const row3 = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid LIMIT 1 OFFSET 2")
+        .get("sess-version-cache") as { payload: string };
+      const payload3 = JSON.parse(row3.payload) as Record<string, unknown>;
+      assert.strictEqual(payload3.skills_package_version, "2.5.1");
+    });
+
+    it("invalidates cache on resources_discover reload and re-resolves", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "reload", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      const pkgDir = join(tmp, "reload");
+      writePackageJson(pkgDir, { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-reload");
+
+      await stub.fire("input", inputEvent("/skill:foo first", "interactive"));
+      t.flush();
+
+      writePackageJson(pkgDir, { name: "task-workflow", version: "3.0.0" });
+      await stub.fire("resources_discover", { type: "resources_discover", cwd: "/tmp/proj", reason: "reload" });
+
+      await stub.fire("input", inputEvent("/skill:foo second", "interactive"));
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY rowid")
+        .all("sess-version-reload") as Array<{ payload: string }>;
+      assert.strictEqual(rows.length, 2);
+      assert.strictEqual(JSON.parse(rows[0].payload).skills_package_version, "2.5.1");
+      assert.strictEqual(JSON.parse(rows[1].payload).skills_package_version, "3.0.0");
+    });
   });
 });
