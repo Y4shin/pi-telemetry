@@ -4,7 +4,7 @@ slug: swt-skill-cost-preset
 title: "query_telemetry preset skill_cost — cost/turns/tool-errors by skills_package_version + skill_name"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: s
 blocked_by: []
 ---

@@ -1,2 +1,2 @@
-task: None
-slice: None
+task: swt-compare-versions-queries
+slice: swt-skill-cost-preset
