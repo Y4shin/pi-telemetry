@@ -2,8 +2,10 @@
 kind: map
 slug: deprecate-bash-executions
 title: Deprecate the bash_executions table — remove all code usage, keep the DDL
-status: active
-tasks: [deprecate-bash-executions]
+status: done
+tasks:
+- slug: deprecate-bash-executions
+  done: true
 ---
 
 ## Destination
