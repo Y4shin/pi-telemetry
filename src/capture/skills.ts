@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, SlashCommandInfo, TurnStartEvent } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
 import { sha256, textLength } from "../hash.ts";
-import { insertSkillMetadata } from "./skill-metadata.ts";
+import { insertSkillMetadata, type MetadataType } from "./skill-metadata.ts";
 import { resolvePackageInfo } from "../version.ts";
 
 const SKILL_PREFIX = "/skill:";
@@ -297,6 +298,196 @@ function projectCapturedFields(
   }
 }
 
+interface TelemetrySkillContextParams {
+  target?: string;
+  map?: string;
+  slice?: string;
+  sliceCount?: number;
+  extra?: Record<string, unknown>;
+}
+
+interface NormalizedValue {
+  /** JSON payload value (strings, numbers, booleans). */
+  readonly payloadValue: string | number | boolean;
+  /** Metadata projection value. */
+  readonly metadataValue: string | number | boolean;
+  /** Metadata projection type. */
+  readonly metadataType: MetadataType;
+}
+
+function hashValue(value: string): string {
+  return `${textLength(value)}:${sha256(value)}`;
+}
+
+function normalizeStringParam(value: string): { value: string } {
+  if (isKebabSlug(value)) {
+    return { value };
+  }
+  return { value: hashValue(value) };
+}
+
+function normalizeExtraValue(
+  t: Telemetry,
+  key: string,
+  value: unknown,
+): NormalizedValue | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "boolean") {
+    return {
+      payloadValue: value,
+      metadataValue: value,
+      metadataType: "bool",
+    };
+  }
+
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) {
+      t.meta("warn", "handler_error", `telemetry_skill_context: extra key ${key} is NaN`);
+      return null;
+    }
+    if (Number.isInteger(value)) {
+      return {
+        payloadValue: value,
+        metadataValue: value,
+        metadataType: "int",
+      };
+    }
+    return {
+      payloadValue: value,
+      metadataValue: value,
+      metadataType: "float",
+    };
+  }
+
+  if (typeof value === "string") {
+    if (isKebabSlug(value)) {
+      return {
+        payloadValue: value,
+        metadataValue: value,
+        metadataType: "string",
+      };
+    }
+    const hashed = hashValue(value);
+    return {
+      payloadValue: hashed,
+      metadataValue: hashed,
+      metadataType: "string",
+    };
+  }
+
+  let json: string;
+  try {
+    json = JSON.stringify(value);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    t.meta(
+      "warn",
+      "handler_error",
+      `telemetry_skill_context: extra key ${key} is unserializable: ${detail}`,
+    );
+    return null;
+  }
+
+  const hashed = hashValue(json);
+  return {
+    payloadValue: hashed,
+    metadataValue: hashed,
+    metadataType: "string",
+  };
+}
+
+function jsonLiteral(value: string | number | boolean | null): string {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") return String(value);
+  return JSON.stringify(value);
+}
+
+function handleTelemetrySkillContext(
+  t: Telemetry,
+  params: TelemetrySkillContextParams,
+): void {
+  const { sessionId, runId, turnId } = t.state.correlation();
+  const eventId = t.state.lastSkillInvokeEventId;
+
+  if (!sessionId || !runId || !turnId || !eventId) {
+    t.meta(
+      "warn",
+      "handler_error",
+      "telemetry_skill_context: no active skill invocation for current run/turn",
+    );
+    return;
+  }
+
+  const updates: Array<{ path: string; value: string | number | boolean }> = [];
+  const metadata: Array<{ key: string; type: MetadataType; value: string | number | boolean }> = [];
+
+  for (const key of ["target", "map", "slice"] as const) {
+    const value = params[key];
+    if (value === undefined) continue;
+    const normalized = normalizeStringParam(value);
+    updates.push({ path: `$.${key}`, value: normalized.value });
+    metadata.push({ key, type: "string", value: normalized.value });
+  }
+
+  if (params.sliceCount !== undefined) {
+    if (typeof params.sliceCount === "number" && Number.isInteger(params.sliceCount)) {
+      updates.push({ path: "$.slice_count", value: params.sliceCount });
+      metadata.push({ key: "slice_count", type: "int", value: params.sliceCount });
+    } else {
+      t.meta(
+        "warn",
+        "handler_error",
+        `telemetry_skill_context: sliceCount must be an integer`,
+      );
+    }
+  }
+
+  if (params.extra !== undefined && typeof params.extra === "object" && params.extra !== null) {
+    let extraKeysWritten = 0;
+    for (const [key, value] of Object.entries(params.extra)) {
+      if (!KEY_RE.test(key)) {
+        t.meta(
+          "warn",
+          "handler_error",
+          `telemetry_skill_context: extra key ${key} is not a valid identifier`,
+        );
+        continue;
+      }
+      const normalized = normalizeExtraValue(t, key, value);
+      if (normalized) {
+        extraKeysWritten++;
+        updates.push({ path: `$.extra.${key}`, value: normalized.payloadValue });
+        metadata.push({ key, type: normalized.metadataType, value: normalized.metadataValue });
+      }
+    }
+    if (extraKeysWritten === 0) {
+      t.enqueue(
+        `UPDATE session_events
+         SET payload = json_set(payload, '$.extra', json('{}'))
+         WHERE event_id = ? AND run_id = ? AND turn_id = ?`,
+        [eventId, runId, turnId],
+      );
+    }
+  }
+
+  for (const { path, value } of updates) {
+    t.enqueue(
+      `UPDATE session_events
+       SET payload = json_set(payload, ?, json(?))
+       WHERE event_id = ? AND run_id = ? AND turn_id = ?`,
+      [path, jsonLiteral(value), eventId, runId, turnId],
+    );
+  }
+
+  for (const { key, type, value } of metadata) {
+    insertSkillMetadata(t, eventId, key, type, value);
+  }
+}
+
 export function registerSkillCapture(pi: ExtensionAPI, t: Telemetry): void {
   pi.on("input", async (event: InputEvent, _ctx: ExtensionContext): Promise<InputEventResult> => {
     guard(t, () => {
@@ -345,5 +536,33 @@ export function registerSkillCapture(pi: ExtensionAPI, t: Telemetry): void {
       skillInfoCache = null;
     });
     return {};
+  });
+
+  pi.registerTool({
+    name: "telemetry_skill_context",
+    label: "Telemetry Skill Context",
+    description:
+      "Attach dynamic metadata (target, map, slice, slice_count, extra) to the current skill invocation.",
+    parameters: Type.Object({
+      target: Type.Optional(Type.String({ description: "Target slug" })),
+      map: Type.Optional(Type.String({ description: "Map slug" })),
+      slice: Type.Optional(Type.String({ description: "Slice slug" })),
+      sliceCount: Type.Optional(Type.Integer({ description: "Number of slices" })),
+      extra: Type.Optional(
+        Type.Record(Type.String(), Type.Unknown(), {
+          description: "Extra key-value metadata",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      try {
+        handleTelemetrySkillContext(t, params as TelemetrySkillContextParams);
+      } catch (err) {
+        guard(t, () => {
+          throw err;
+        });
+      }
+      return { content: [{ type: "text", text: "Recorded." }], details: {} };
+    },
   });
 }
