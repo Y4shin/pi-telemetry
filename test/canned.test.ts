@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { seedFixture } from "./helpers/fixture-db.ts";
+import { seedSkillEvents } from "./helpers/fixture-skill-events.ts";
 import { CANNED, runCanned } from "../src/query/canned.ts";
 
 describe("canned queries", () => {
@@ -42,6 +43,8 @@ describe("canned queries", () => {
       "ttft_by_model",
       "feedback",
       "agent_tree",
+      "skill_cost",
+      "skill_versions",
     ];
     for (const name of required) {
       assert.ok(CANNED[name], `missing canned query ${name}`);
@@ -127,6 +130,97 @@ describe("canned queries", () => {
     const table = await runCanned(emptyPath, "daily_cost");
     assert.strictEqual(table.rows.length, 0);
     assert.strictEqual(table.truncated, false);
+  });
+
+  it("skill_cost returns rows grouped by version and skill", async () => {
+    seedSkillEvents(db, now);
+    const table = await runCanned(dbPath, "skill_cost");
+    assert.deepStrictEqual(table.columns, [
+      "skills_package_version",
+      "skill_name",
+      "invocations",
+      "cost_usd",
+      "tokens",
+      "tool_errors",
+    ]);
+    assert.strictEqual(table.rows.length, 3);
+
+    const asObjects = table.rows.map((r) => ({
+      version: r[0] as string,
+      skill: r[1] as string,
+      invocations: r[2] as number,
+      cost_usd: r[3] as number,
+      tokens: r[4] as number,
+      tool_errors: r[5] as number,
+    }));
+
+    assert.deepStrictEqual(asObjects, [
+      { version: "2.5.1", skill: "implement-task", invocations: 2, cost_usd: 0.3, tokens: 150, tool_errors: 1 },
+      { version: "2.5.1", skill: "wayfinder", invocations: 1, cost_usd: 0.015, tokens: 30, tool_errors: 1 },
+      { version: "2.4.0", skill: "implement-task", invocations: 1, cost_usd: 0.05, tokens: 25, tool_errors: 0 },
+    ]);
+  });
+
+  it("skill_cost uses indexes", async () => {
+    seedSkillEvents(db, now);
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${CANNED.skill_cost.sql}`).all() as Array<{ detail: string }>;
+    const details = plan.map((r) => r.detail).join("\n");
+    assert.ok(!details.includes("SCAN"), `expected no full table scans, got:\n${details}`);
+    assert.ok(details.includes("idx_sems_key_text"), "should use idx_sems_key_text");
+    assert.ok(details.includes("idx_turns_run"), "should use idx_turns_run");
+  });
+
+  it("skill_versions filters to a single version", async () => {
+    seedSkillEvents(db, now);
+    const table = await runCanned(dbPath, "skill_versions", { verFilter: "2.5.1" });
+    assert.deepStrictEqual(table.columns, [
+      "skills_package_version",
+      "skill_name",
+      "invocations",
+      "cost_usd",
+      "tokens",
+      "tool_errors",
+    ]);
+    assert.strictEqual(table.rows.length, 2);
+    const asObjects = table.rows.map((r) => ({
+      version: r[0] as string,
+      skill: r[1] as string,
+      invocations: r[2] as number,
+      cost_usd: r[3] as number,
+      tokens: r[4] as number,
+      tool_errors: r[5] as number,
+    }));
+    assert.deepStrictEqual(asObjects, [
+      { version: "2.5.1", skill: "implement-task", invocations: 2, cost_usd: 0.3, tokens: 150, tool_errors: 1 },
+      { version: "2.5.1", skill: "wayfinder", invocations: 1, cost_usd: 0.015, tokens: 30, tool_errors: 1 },
+    ]);
+  });
+
+  it("skill_versions uses indexes", async () => {
+    seedSkillEvents(db, now);
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${CANNED.skill_versions.sql}`).all() as Array<{ detail: string }>;
+    const details = plan.map((r) => r.detail).join("\n");
+    assert.ok(!details.includes("SCAN"), `expected no full table scans, got:\n${details}`);
+    assert.ok(details.includes("idx_sems_key_text"), "should use idx_sems_key_text");
+    assert.ok(details.includes("idx_turns_run"), "should use idx_turns_run");
+  });
+
+  it("skill_cost drops invocations with missing version or skill metadata", async () => {
+    db.prepare("INSERT INTO sessions (session_id, started_unix_ms) VALUES (?, ?)").run("sess-incomplete", now);
+    db.prepare("INSERT INTO agent_runs (run_id, session_id, started_unix_ms) VALUES (?, ?, ?)").run("run-incomplete", "sess-incomplete", now);
+    db.prepare(
+      "INSERT INTO turns (turn_id, run_id, session_id, turn_index, started_unix_ms, total_tokens, cost_total_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run("turn-incomplete", "run-incomplete", "sess-incomplete", 1, now, 999, 9.99);
+    db.prepare(
+      "INSERT INTO tool_executions (tool_call_id, turn_id, run_id, session_id, tool_name, started_unix_ms, is_error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run("tool-incomplete", "turn-incomplete", "run-incomplete", "sess-incomplete", "bash", now, 0);
+    db.prepare(
+      "INSERT INTO session_events (event_id, session_id, unix_ms, type, payload, run_id) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("evt-incomplete", "sess-incomplete", now, "skill_invoke", "{}", "run-incomplete");
+    // No metadata rows for version/skill.
+
+    const table = await runCanned(dbPath, "skill_cost");
+    assert.strictEqual(table.rows.length, 0);
   });
 
   it("rejects unknown canned names", async () => {

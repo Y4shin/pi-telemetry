@@ -197,3 +197,31 @@ Patterns proven for capturing `input`-event-driven, pre-expansion telemetry:
   handler; assert `session_events` + `session_event_metadata` rows. The privacy
   test scans all TEXT/BLOB columns across the tables for the secret arg
   string (zero matches).
+
+### Compare-versions canned queries (`src/query/canned.ts`, landed task
+`swt-compare-versions-queries`)
+
+The `skill_cost` / `skill_versions` presets answer "how do two skills-package
+versions differ?" and "which skill costs/fails the most?". The query shape is
+the reusable pattern for any future skill-dimension query:
+
+- **Join on the native `session_events.run_id`** (migration 4, `idx_sev_run`),
+  NOT the EAV `run_id` row — the native column is the index-backed join path to
+  `turns` → `tool_executions`. The EAV table (`session_event_metadata`) is for
+  the *variable grouping dimensions* only (`skill_name`,
+  `skills_package_version`, `target`, …) via its typed `value_text` columns,
+  index-backed by `idx_sems_key_text` (the `(key, value_text)` index).
+- **Inner joins drop rows with no version/skill_name metadata** — an
+  invocation with no version isn't comparable across versions (arch-spec
+  approved). Document in the preset description.
+- **Filter via the `-- {{key:column}}` markers** (`applyFilters`); add a new
+  filter key to `CannedFilters` + a tool param + a `buildFilters` mapping. The
+  `skill_versions` preset reuses `skill_cost`'s SQL + a `verFilter` marker.
+- **A/B version diff = two filtered queries + client-side diff**, not a SQL
+  UNION (arch-spec Q1). The agent calls `skill_versions` once per version.
+- **Test fixture:** `test/helpers/fixture-skill-events.ts` seeds synthetic
+  `skill_invoke` `session_events` + `session_event_metadata` + `turns` +
+  `tool_executions` rows; reused across the canned/command/tool tests. Assert
+  `EXPLAIN QUERY PLAN` shows `USING INDEX` (no `SCAN`).
+- **`/tm skills` subcommand** reuses `runCanned(dbPath, "skill_cost")` +
+  `formatResult` — no second table formatter.

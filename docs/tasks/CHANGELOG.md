@@ -1,5 +1,17 @@
 # Task Changelog
 
+## 2026-08-03 — Compare-versions queries (swt-compare-versions-queries)
+
+Feature B of the skill-workflow-telemetry map. Adds the `skill_cost` and
+`skill_versions` `query_telemetry` presets + a `/tm skills` subcommand to
+compare metrics across skills-package versions and skills. Pure read-only
+queries over Feature A's tables: joins `session_events` (type='skill_invoke')
+→ `session_event_metadata` EAV (skill_name + skills_package_version grouping)
+→ `turns` on native `run_id` (migration 4) → `tool_executions`, index-backed.
+`skill_versions` filters to one version (agent calls twice for A/B diff).
+3 slices (size s each); 219 tests green (was 213, +6), tsc clean. No new
+tables/migrations.
+
 ## 2026-08-03 — Skill invocation capture (swt-skill-invoke-capture)
 
 Feature A of the skill-workflow-telemetry map. Records `/skill:<name>`

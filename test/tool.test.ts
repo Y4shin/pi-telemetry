@@ -10,6 +10,7 @@ import { createL1Stub } from "./helpers/l1-stub.ts";
 import { registerTelemetryTool } from "../src/query/tool.ts";
 import { registerFeedback } from "../src/feedback.ts";
 import { openDatabase } from "../src/db.ts";
+import { seedSkillEvents } from "./helpers/fixture-skill-events.ts";
 
 function makeTelemetry(dbPath: string, sessionId: string | null = null): Telemetry {
   const state = createRuntimeState();
@@ -158,6 +159,46 @@ describe("query_telemetry tool", () => {
     const ids = result.details.rows.map((r) => r[idx]);
     assert.ok(ids.includes("sess-root"));
     assert.ok(ids.includes("sess-child"));
+  });
+
+  it("skill_cost preset returns rows grouped by version and skill", async () => {
+    seedSkillEvents(db, now);
+    const stub = createL1Stub();
+    registerTelemetryTool(stub.pi, makeTelemetry(dbPath));
+    const result = await execute(stub, { query: "skill_cost" });
+    assert.strictEqual(result.details.rowCount, 3);
+    const idx = {
+      version: result.details.columns.indexOf("skills_package_version"),
+      skill: result.details.columns.indexOf("skill_name"),
+      invocations: result.details.columns.indexOf("invocations"),
+      cost: result.details.columns.indexOf("cost_usd"),
+      tokens: result.details.columns.indexOf("tokens"),
+      errors: result.details.columns.indexOf("tool_errors"),
+    };
+    const first = result.details.rows[0];
+    assert.strictEqual(first[idx.version], "2.5.1");
+    assert.strictEqual(first[idx.skill], "implement-task");
+    assert.strictEqual(first[idx.invocations], 2);
+    assert.strictEqual(first[idx.cost], 0.3);
+    assert.strictEqual(first[idx.tokens], 150);
+    assert.strictEqual(first[idx.errors], 1);
+  });
+
+  it("skill_versions preset filtered by version returns one version's rows", async () => {
+    seedSkillEvents(db, now);
+    const stub = createL1Stub();
+    registerTelemetryTool(stub.pi, makeTelemetry(dbPath));
+    const result = await execute(stub, { query: "skill_versions", version: "2.5.1" });
+    assert.strictEqual(result.details.rowCount, 2);
+    const idx = {
+      version: result.details.columns.indexOf("skills_package_version"),
+      skill: result.details.columns.indexOf("skill_name"),
+    };
+    for (const row of result.details.rows) {
+      assert.strictEqual(row[idx.version], "2.5.1");
+    }
+    const skills = result.details.rows.map((r) => r[idx.skill]).sort();
+    assert.deepStrictEqual(skills, ["implement-task", "wayfinder"]);
   });
 
   it("sql escape hatch runs raw SELECT", async () => {
