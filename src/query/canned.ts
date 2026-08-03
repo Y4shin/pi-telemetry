@@ -324,6 +324,28 @@ ORDER BY started_unix_ms DESC
 LIMIT 500
 `.trim(),
   },
+
+  skill_cost: {
+    description: "Cost, tokens, and tool errors per skills_package_version and skill_name. Rows with no version or skill metadata are excluded.",
+    sql: `
+SELECT
+  ver.value_text AS skills_package_version,
+  skill.value_text AS skill_name,
+  COUNT(*) AS invocations,
+  ROUND(SUM(t.cost_total_usd), 6) AS cost_usd,
+  SUM(t.total_tokens) AS tokens,
+  SUM(CASE WHEN te.is_error THEN 1 ELSE 0 END) AS tool_errors
+FROM session_events se
+JOIN session_event_metadata ver ON ver.event_id = se.event_id AND ver.key = 'skills_package_version'
+JOIN session_event_metadata skill ON skill.event_id = se.event_id AND skill.key = 'skill_name'
+JOIN turns t ON t.run_id = se.run_id
+JOIN tool_executions te ON te.turn_id = t.turn_id
+WHERE se.type = 'skill_invoke'
+GROUP BY ver.value_text, skill.value_text
+ORDER BY ver.value_text DESC, skill.value_text
+LIMIT 500
+`.trim(),
+  },
 };
 
 export function runCanned(
