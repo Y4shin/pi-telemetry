@@ -187,6 +187,11 @@ async function renderCost(dbPath: string, args: string, now: number): Promise<st
   return formatResult(result);
 }
 
+async function renderSkills(dbPath: string): Promise<string> {
+  const result = await runCanned(dbPath, "skill_cost");
+  return formatResult(result);
+}
+
 async function renderErrors(dbPath: string, args: string, now: number): Promise<string> {
   const tokens = tokenize(args);
   let since: number | undefined;
@@ -306,6 +311,8 @@ async function handleCommand(
       return renderSession(dbPath, t);
     case "cost":
       return renderCost(dbPath, trimmed, t.now());
+    case "skills":
+      return renderSkills(dbPath);
     case "errors":
       return renderErrors(dbPath, trimmed, t.now());
     case "feedback":
@@ -317,7 +324,7 @@ async function handleCommand(
     case "sql":
       return renderSql(dbPath, trimmed);
     default:
-      return `Unknown /tm subcommand: ${subcommand}\nUsage: /tm [status|session|cost|errors|feedback|tree|export|sql]`;
+      return `Unknown /tm subcommand: ${subcommand}\nUsage: /tm [status|session|cost|errors|feedback|tree|export|sql|skills]`;
   }
 }
 
@@ -340,7 +347,7 @@ export function registerTelemetryCommands(pi: ExtensionAPI, t: Telemetry): void 
 
   pi.registerCommand("telemetry", {
     description:
-      "Telemetry query surface. Subcommands: status, session, cost [today|week|all], errors [--since], feedback [--kind --source --since], tree, export [--table --from --to --out], sql \"SELECT ...\"",
+      "Telemetry query surface. Subcommands: status, session, cost [today|week|all], errors [--since], feedback [--kind --source --since], tree, export [--table --from --to --out], sql \"SELECT ...\", skills",
     handler: handler as unknown as (args: string, ctx: ExtensionCommandContext) => Promise<void>,
   });
 

@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { createL1Stub, type L1Stub } from "./helpers/l1-stub.ts";
 import { seedFixture } from "./helpers/fixture-db.ts";
+import { seedSkillEvents } from "./helpers/fixture-skill-events.ts";
 import { createRuntimeState, type Telemetry } from "../src/state.ts";
 import { registerTelemetryCommands } from "../src/query/commands.ts";
 
@@ -202,5 +203,55 @@ describe("telemetry commands", () => {
     const out = await cmd(stub, "telemetry").handler("frobnicate", ctx());
     assert.ok(typeof out === "string");
     assert.ok(out.includes("Usage"));
+  });
+
+  it("skills renders skill cost table rows", async () => {
+    seedSkillEvents(db, now);
+    const stub = createL1Stub();
+    registerTelemetryCommands(stub.pi, makeTelemetry(dbPath));
+    const out = await cmd(stub, "telemetry").handler("skills", ctx());
+    assert.ok(typeof out === "string");
+    assert.ok(out.includes("skills_package_version"));
+    assert.ok(out.includes("skill_name"));
+    assert.ok(out.includes("invocations"));
+    assert.ok(out.includes("cost_usd"));
+    assert.ok(out.includes("tokens"));
+    assert.ok(out.includes("tool_errors"));
+    assert.ok(out.includes("implement-task"));
+    assert.ok(out.includes("2.5.1"));
+    assert.ok(out.includes("2.4.0"));
+  });
+
+  it("skills orders newest version first", async () => {
+    seedSkillEvents(db, now);
+    const stub = createL1Stub();
+    registerTelemetryCommands(stub.pi, makeTelemetry(dbPath));
+    const out = await cmd(stub, "telemetry").handler("skills", ctx());
+    const idx251 = out.indexOf("2.5.1");
+    const idx240 = out.indexOf("2.4.0");
+    assert.ok(idx251 >= 0);
+    assert.ok(idx240 >= 0);
+    assert.ok(idx251 < idx240, "expected 2.5.1 before 2.4.0");
+  });
+
+  it("skills on empty DB shows no data", async () => {
+    const emptyPath = join(tmp, "empty.db");
+    const emptyDb = seedFixture(emptyPath, { now });
+    emptyDb.exec("PRAGMA foreign_keys=OFF");
+    emptyDb.exec("DELETE FROM feedback");
+    emptyDb.exec("DELETE FROM tool_executions");
+    emptyDb.exec("DELETE FROM llm_requests");
+    emptyDb.exec("DELETE FROM turns");
+    emptyDb.exec("DELETE FROM agent_runs");
+    emptyDb.exec("DELETE FROM sessions");
+    emptyDb.exec("DELETE FROM telemetry_meta");
+    emptyDb.exec("PRAGMA foreign_keys=ON");
+    emptyDb.close();
+
+    const stub = createL1Stub();
+    registerTelemetryCommands(stub.pi, makeTelemetry(emptyPath));
+    const out = await cmd(stub, "telemetry").handler("skills", ctx());
+    assert.ok(typeof out === "string");
+    assert.ok(out.includes("(no data)"));
   });
 });
