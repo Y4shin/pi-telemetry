@@ -4,7 +4,7 @@ slug: swt-telemetry-skill-context-tool
 title: "Register telemetry_skill_context tool to attach dynamic metadata mid-run to the current skill_invoke row"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: [swt-input-skill-invoke, swt-turn-start-backfill]
 ---

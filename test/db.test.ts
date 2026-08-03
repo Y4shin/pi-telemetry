@@ -14,6 +14,7 @@ const TABLES = [
   "tool_executions",
   "bash_executions",
   "session_events",
+  "session_event_metadata",
   "feedback",
   "telemetry_meta",
   "flush_log",
@@ -68,7 +69,58 @@ describe("db", () => {
     db.close();
   });
 
-  it("migrates an existing v1 database to v2 by adding flush_log", () => {
+  it("migrates an existing v2 database to latest by adding session_event_metadata and session_events attribution columns", () => {
+    const v2Db = new DatabaseSync(dbPath);
+    v2Db.exec(`
+      CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE agent_runs (run_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id));
+      CREATE TABLE turns (turn_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(run_id), session_id TEXT NOT NULL, turn_index INTEGER NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE llm_requests (request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE tool_executions (tool_call_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, tool_name TEXT NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE bash_executions (bash_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE session_events (event_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, unix_ms INTEGER NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL);
+      CREATE TABLE feedback (feedback_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, received_unix_ms INTEGER NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE telemetry_meta (id INTEGER PRIMARY KEY AUTOINCREMENT, unix_ms INTEGER NOT NULL, level TEXT NOT NULL, event TEXT NOT NULL, detail TEXT, session_id TEXT);
+      CREATE TABLE flush_log (id INTEGER PRIMARY KEY AUTOINCREMENT, unix_ms INTEGER NOT NULL, session_id TEXT, row_count INTEGER NOT NULL, tx_duration_ms INTEGER NOT NULL);
+      PRAGMA user_version = 2;
+    `);
+    v2Db.prepare(
+      "INSERT INTO session_events (event_id, session_id, unix_ms, type, payload) VALUES (?, ?, ?, ?, ?)",
+    ).run("evt-pre-v3", "sess-pre-v3", 12345, "compaction", '{"reason":"threshold"}');
+    v2Db.close();
+
+    openDatabase(dbPath);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const version = db.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    assert.strictEqual(version.user_version, MIGRATIONS.length);
+    const hasMeta = (
+      db
+        .prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='session_event_metadata'")
+        .get() as { c: number }
+    ).c;
+    assert.strictEqual(hasMeta, 1);
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_sems_%'")
+      .all() as Array<{ name: string }>;
+    assert.deepStrictEqual(indexes.map((r) => r.name).sort(), ["idx_sems_key_int", "idx_sems_key_text"]);
+    const columns = db
+      .prepare("PRAGMA table_info(session_events)")
+      .all() as Array<{ name: string }>;
+    const columnNames = columns.map((c) => c.name);
+    assert.ok(columnNames.includes("run_id"));
+    assert.ok(columnNames.includes("turn_id"));
+    assert.ok(columnNames.includes("turn_index"));
+    const preserved = db
+      .prepare("SELECT type, payload FROM session_events WHERE event_id = ?")
+      .get("evt-pre-v3") as { type: string; payload: string };
+    assert.strictEqual(preserved.type, "compaction");
+    assert.strictEqual(preserved.payload, '{"reason":"threshold"}');
+    db.close();
+  });
+
+  it("migrates an existing v1 database to latest by applying all migrations", () => {
     const v1Db = new DatabaseSync(dbPath);
     v1Db.exec(`
       CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_unix_ms INTEGER NOT NULL);
@@ -89,7 +141,7 @@ describe("db", () => {
     const version = db.prepare("PRAGMA user_version").get() as {
       user_version: number;
     };
-    assert.strictEqual(version.user_version, 2);
+    assert.strictEqual(version.user_version, MIGRATIONS.length);
     const hasFlushLog = (
       db
         .prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='flush_log'")

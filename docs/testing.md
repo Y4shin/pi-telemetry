@@ -142,3 +142,58 @@ NOT part of the npm CI — verified manually.
 - Acceptance: `~/.pi/telemetry-eval/scripts/smoke_test.py` exits 0; the example
   `example_cost_by_model.py` returns a non-empty DataFrame. Run with
   `cd ~/.pi/telemetry-eval && [LD_LIBRARY_PATH=...] uv run python scripts/x.py`.
+
+### Skill invocation capture (`src/capture/skills.ts`, landed task
+`swt-skill-invoke-capture`)
+
+Patterns proven for capturing `input`-event-driven, pre-expansion telemetry:
+
+- **The `input` event is the skill-invocation seam.** `pi.on("input", …)`
+  fires on TUI (`interactive`), RPC (`rpc`), and print (`pi -p`) — all route
+  through `session.prompt()` → `emitInput` — and sees raw `/skill:<name> <args>`
+  text BEFORE skill/template expansion. Skip `source:"extension"`
+  (programmatic injection, not a skill invocation). The handler MUST return
+  `{action:"continue"}` (outside the `guard()` body, so it returns even if the
+  body throws) — telemetry must never block or transform input. Mid-stream
+  `steer()`/`followUp()` expand skills WITHOUT firing `input` (accepted gap).
+- **Skills-package version discovery.** `pi.getCommands()` returns
+  `SlashCommandInfo[]` including `source:"skill"` entries with `sourceInfo.path`
+  (the SKILL.md absolute path). Walk up from that path to the nearest
+  `package.json` and read `name`+`version` (generalized in
+  `src/version.ts` `resolvePackageInfo(startPath)`). Available after
+  `session_start`, before the first `input`. Cache per skill; invalidate on
+  `resources_discover`.
+- **Zero-dep frontmatter extraction.** The Agent Skills standard `metadata`
+  frontmatter field (`metadata.telemetry.capture: "key1,key2"`) is the
+  self-declaration seam. `src/` has NO yaml dependency (and must not gain one —
+  SPEC zero-runtime-deps contract); `skills.ts` uses a minimal `---\n…\n---`
+  extractor. Only kebab-case slug identifiers are stored as metadata values;
+  non-slug args → JSON `null` + no metadata row (the slice-1 `args_hash` already
+  fingerprints the raw arg).
+- **`session_event_metadata` (sparse EAV + CHECK).** The typed, queryable
+  projection of skill-invocation dimensions (`skill_name`,
+  `skills_package_version`, `target`, `run_id`, …). One row per (event_id, key);
+  `INSERT OR IGNORE` for replay idempotency. The CHECK constraint enforces
+  exactly one `value_*` column non-null matching `type`. The single writer is
+  `insertSkillMetadata(t, eventId, key, type, value)` in
+  `src/capture/skill-metadata.ts` (self-guarded). New queryable keys are rows,
+  never a schema migration.
+- **`run_id` attribution + back-fill.** The `input` event fires BEFORE
+  `agent_start`, so the `skill_invoke` row starts with `run_id=null`. A
+  `turn_start` handler back-fills `run_id`/`turn_id`/`turn_index` (native
+  columns on `session_events`, migration 4) using the `event_id` stored in
+  `RuntimeState.lastSkillInvokeEventId` (set at `input` time). This is what
+  makes the compare-versions join efficient — join on `session_events.run_id`
+  (native column, `idx_sev_run`), NOT on `session_id` (which cross-products).
+- **Mid-run enrichment tool.** `telemetry_skill_context` (mirrors
+  `submit_feedback`) lets a skill attach dynamic metadata mid-run. Attribution
+  uses `lastSkillInvokeEventId` + `run_id` + `turn_id` (NOT a DB lookup —
+  telemetry writes are buffered and the row may not be flushed yet when the
+  tool runs). `json_set(payload, '$.key', json(?))` via a `jsonLiteral()` helper
+  preserves numeric/boolean JSON types (plain `json_set(payload,'$.key',?)`
+  stores them as JSON strings).
+- **L1 harness for `input`.** `test/helpers/l1-stub.ts` `stub.fire("input",
+  {type:"input", text:"/skill:foo bar", source:"interactive"})` drives the
+  handler; assert `session_events` + `session_event_metadata` rows. The privacy
+  test scans all TEXT/BLOB columns across the tables for the secret arg
+  string (zero matches).

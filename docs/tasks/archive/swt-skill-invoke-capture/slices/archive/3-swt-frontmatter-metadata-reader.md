@@ -4,7 +4,7 @@ slug: swt-frontmatter-metadata-reader
 title: "Read metadata.capture from SKILL.md frontmatter; extract named/positional slugs into skill_invoke payload"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: [swt-input-skill-invoke]
 ---
