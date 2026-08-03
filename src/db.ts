@@ -206,6 +206,15 @@ CREATE INDEX IF NOT EXISTS idx_sems_key_text ON session_event_metadata(key, valu
 CREATE INDEX IF NOT EXISTS idx_sems_key_int  ON session_event_metadata(key, value_int);
 CREATE INDEX IF NOT EXISTS idx_turns_run ON turns(run_id);`,
   },
+  {
+    version: 4,
+    description: "add run_id/turn_id/turn_index to session_events for skill_invoke attribution",
+    sql: `ALTER TABLE session_events ADD COLUMN run_id TEXT;
+ALTER TABLE session_events ADD COLUMN turn_id TEXT;
+ALTER TABLE session_events ADD COLUMN turn_index INTEGER;
+CREATE INDEX IF NOT EXISTS idx_sev_run ON session_events(run_id);
+CREATE INDEX IF NOT EXISTS idx_sev_turn ON session_events(turn_id);`,
+  },
 ];
 
 function isBusyError(err: unknown): boolean {

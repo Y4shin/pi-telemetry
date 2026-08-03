@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, SlashCommandInfo, TurnStartEvent } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
 import { sha256, textLength } from "../hash.ts";
@@ -319,6 +319,25 @@ export function registerSkillCapture(pi: ExtensionAPI, t: Telemetry): void {
     });
 
     return { action: "continue" };
+  });
+
+  pi.on("turn_start", async (_event: TurnStartEvent, _ctx: ExtensionContext) => {
+    guard(t, () => {
+      const sessionId = t.state.sessionId;
+      const runId = t.state.runId;
+      const turnId = t.state.turnId;
+      const eventId = t.state.lastSkillInvokeEventId;
+      if (!sessionId || !runId || !turnId || !eventId) return;
+
+      t.enqueue(
+        `UPDATE session_events
+         SET run_id = ?, turn_id = ?, turn_index = ?
+         WHERE event_id = ?`,
+        [runId, turnId, t.state.turnIndex, eventId],
+      );
+
+      insertSkillMetadata(t, eventId, "run_id", "string", runId);
+    });
   });
 
   pi.on("resources_discover", async (_event: ResourcesDiscoverEvent, _ctx: ExtensionContext): Promise<ResourcesDiscoverResult> => {
