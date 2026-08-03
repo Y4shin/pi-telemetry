@@ -91,3 +91,28 @@ only for grouping dimensions. No new tables/migrations — pure read-only querie
 2. `swt-tm-skills-command` (s) — `/tm skills` subcommand.
 3. `swt-skill-versions-preset` (s) — `query_telemetry` preset `skill_versions`
    (A/B version delta).
+
+## Implementation notes
+
+### swt-skill-cost-preset (landed)
+
+- Added the `skill_cost` preset to `src/query/canned.ts` (Option D pivot join:
+  `session_events` `type='skill_invoke'` → `session_event_metadata` EAV per key
+  for `skills_package_version` + `skill_name` → `turns` on native `run_id` →\  `tool_executions` on `turn_id`, grouped by version+skill, ordered version desc
+  then skill, `LIMIT 500`). Listed `skill_cost` in `PRESET_NAMES` and the tool
+  description in `src/query/tool.ts`.
+- Output columns: `skills_package_version, skill_name, invocations, cost_usd,
+  tokens, tool_errors`. Note: the slice doc acceptance criteria listed `turns`,
+  but the approved arch-spec SQL and the task instructions both use `tokens`
+  (`SUM(t.total_tokens) AS tokens`). Implemented `tokens` per the arch spec,
+  which is authoritative where it conflicts with the slice docs.
+- No new filter keys this slice (`verFilter` deferred to slice 3); the
+  `-- {{verFilter:ver.value_text}}` marker is intentionally absent and will be
+  added by slice 3.
+- Tests: `test/canned.test.ts` (grouping/order, `EXPLAIN QUERY PLAN` index
+  usage asserting `idx_sems_key_text` + `idx_turns_run`, null-version/skill
+  drop), `test/tool.test.ts` (integration that `query_telemetry` accepts the
+  preset), and a shared `test/helpers/fixture-skill-events.ts` seeder.
+- Verification: `node --test test/canned.test.ts test/tool.test.ts` 31/31;
+  `npm test` 213/213; `npm run check` clean.
+- Deviation report: `docs/tasks/swt-compare-versions-queries/deviation-reports/swt-skill-cost-preset.md`.
