@@ -1,16 +1,16 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../../src/db.ts";
 import { createBuffer } from "../../src/buffer.ts";
-import { registerSkillCapture } from "../../src/capture/skills.ts";
+import { registerSkillCapture, resetSkillVersionCache } from "../../src/capture/skills.ts";
 import { sha256, textLength } from "../../src/hash.ts";
 import type { TelemetryConfig } from "../../src/config.ts";
 import { createL1Stub } from "../helpers/l1-stub.ts";
-import type { InputEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { InputEvent, ExtensionContext, ExtensionAPI, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 function makeConfig(dbPath: string): TelemetryConfig {
   return {
@@ -46,6 +46,7 @@ describe("registerSkillCapture input handler", () => {
   });
 
   async function setupSession(stub: ReturnType<typeof createL1Stub>, t: ReturnType<typeof createBuffer>, sessionId: string) {
+    resetSkillVersionCache();
     registerSkillCapture(stub.pi, t);
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => sessionId } as unknown as ExtensionContext["sessionManager"],
@@ -53,6 +54,19 @@ describe("registerSkillCapture input handler", () => {
     });
     t.state.sessionId = sessionId;
     t.flush();
+  }
+
+  function makeSkillCommand(name: string, skillPath: string, baseDir: string): SlashCommandInfo {
+    return {
+      name: `skill:${name}`,
+      description: `${name} skill`,
+      source: "skill",
+      sourceInfo: { path: skillPath, source: "git", scope: "user", origin: "package", baseDir },
+    };
+  }
+
+  function writePackageJson(dir: string, pkg: { name?: string; version?: string }): void {
+    writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
   }
 
   it("records a skill_invoke row for /skill:foo bar baz", async () => {
@@ -320,5 +334,38 @@ describe("registerSkillCapture input handler", () => {
       await stub.fire("input", inputEvent("/skill:\u0000weird", "interactive"));
     });
     t.flush();
+  });
+
+  describe("skills package version", () => {
+    it("stamps skill_source and skills_package_version from package.json", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "pkg", "skills", "foo");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(skillPath, "# foo");
+      writePackageJson(join(tmp, "pkg"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("foo", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-version-1");
+
+      await stub.fire("input", inputEvent("/skill:foo bar", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-version-1") as { payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.skill_source, "task-workflow");
+      assert.strictEqual(payload.skills_package_version, "2.5.1");
+
+      const meta = db
+        .prepare("SELECT key, type, value_text FROM session_event_metadata WHERE event_id = (SELECT event_id FROM session_events WHERE session_id = ? AND type = 'skill_invoke')")
+        .all("sess-version-1") as Array<{ key: string; type: string; value_text: string | null }>;
+      const versionMeta = meta.find((m) => m.key === "skills_package_version");
+      assert.ok(versionMeta, "expected skills_package_version metadata row");
+      assert.strictEqual(versionMeta.type, "string");
+      assert.strictEqual(versionMeta.value_text, "2.5.1");
+    });
   });
 });
