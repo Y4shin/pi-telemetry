@@ -222,3 +222,32 @@ slice 5 (turn/turn attribution for the tool).
   (slice doc lists it as a failure mode but does not mandate skipping;
   defensible — the invocation happened; downstream query filtering can
   exclude empty names).
+
+### Slice 2: swt-skills-package-version (landed)
+
+- Added `resolvePackageInfo(startPath)` to `src/version.ts` that walks up from
+  any path to the nearest `package.json` returning `{ name, version }` or nulls;
+  refactored `getExtensionVersion()` to reuse the new helper.
+- Extended `registerSkillCapture` in `src/capture/skills.ts` to resolve the
+  invoked skill's package name and version at `input` time: builds a lazy
+  `skillName → { skillSource, packageVersion }` cache from `pi.getCommands()`
+  (`source:"skill"` entries) + `resolvePackageInfo(sourceInfo.path)`, stamps
+  `skill_source` and `skills_package_version` into the `skill_invoke` payload
+  via `UPDATE session_events SET payload = json_set(...)` using `json_quote(?)`
+  (so null values become JSON nulls and sibling keys are preserved for
+  downstream slices), and projects `skills_package_version` as a metadata row
+  via `insertSkillMetadata`.
+- Cache is invalidated on `resources_discover` (both `"reload"` and
+  `"startup"` reasons — wider than the slice doc's `"reload"`-only, but more
+  conservative; harmless).
+- Added `resetSkillVersionCache()` export for test isolation.
+- `skill_source` is populated from `package.json`'s `name` field (per slice
+  acceptance criterion), not from `sourceInfo.source`.
+- `ResourcesDiscoverEvent`/`ResourcesDiscoverResult` are not re-exported from
+  the `@earendil-works/pi-coding-agent` entry point; used small local structural
+  copies (noted in a comment).
+- Tests: 7 new cases in `test/capture/skills.test.ts` under a `skills package
+  version` sub-suite (package-stamped, no-package nulls, no-version null,
+  unreadable package.json, deeply nested path, cache reuse, cache invalidation
+  on reload).
+- All 186 tests pass across 30 suites; `tsc --noEmit` clean.
