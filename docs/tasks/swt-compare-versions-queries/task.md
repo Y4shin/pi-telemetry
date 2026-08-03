@@ -76,6 +76,15 @@ reduced cost and failures.
 - See `docs/tasks/swt-research-seams/findings.md` and
   `docs/tasks/swt-grill-decisions/task.md`.
 
+## Architecture notes
+
+Arch spec drafted and **APPROVED 2026-08-03** at
+`docs/tasks/swt-compare-versions-queries/arch-spec.md`. Open questions resolved:
+Q1 (two filtered queries + client-side diff for A/B) + Q2 (inner joins drop
+null-version rows) approved per spec recommendation. Join uses native
+`session_events.run_id` (migration 4) for the run→turns→tools hop; EAV table
+only for grouping dimensions. No new tables/migrations — pure read-only queries.
+
 ## Slice list
 
 1. `swt-skill-cost-preset` (s) — `query_telemetry` preset `skill_cost`.
