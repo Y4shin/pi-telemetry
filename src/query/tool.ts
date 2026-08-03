@@ -14,6 +14,7 @@ const PRESET_NAMES = [
   "context_growth",
   "agent_tree",
   "skill_cost",
+  "skill_versions",
 ] as const;
 
 type PresetName = typeof PRESET_NAMES[number];
@@ -53,6 +54,7 @@ function buildFilters(params: Record<string, unknown>, now: number): CannedFilte
   if (typeof params.source === "string") filters.source = params.source;
   if (typeof params.session === "string") filters.sessionId = params.session;
   if (typeof params.tool === "string") filters.toolName = params.tool;
+  if (typeof params.version === "string") filters.verFilter = params.version;
   return filters;
 }
 
@@ -75,12 +77,12 @@ export function registerTelemetryTool(pi: ExtensionAPI, t: Telemetry): void {
     name: "query_telemetry",
     label: "Query Telemetry",
     description:
-      "Query the local pi-telemetry database. Use named presets (query) first: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost. Optional filters: since, model, kind, source, session, tool. For custom analysis, supply raw sql as a SELECT statement (read-only, LIMIT 500 injected, 3s timeout).",
+      "Query the local pi-telemetry database. Use named presets (query) first: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost, skill_versions. Optional filters: since, model, kind, source, session, tool, version. For custom analysis, supply raw sql as a SELECT statement (read-only, LIMIT 500 injected, 3s timeout).",
     parameters: Type.Object({
       query: Type.Optional(
         StringEnum(PRESET_NAMES, {
           description:
-            "Named preset. Valid: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost",
+            "Named preset. Valid: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost, skill_versions",
         }),
       ),
       sql: Type.Optional(
@@ -98,6 +100,9 @@ export function registerTelemetryTool(pi: ExtensionAPI, t: Telemetry): void {
       source: Type.Optional(Type.String({ description: "Filter feedback to a source" })),
       session: Type.Optional(Type.String({ description: "Filter to a session_id" })),
       tool: Type.Optional(Type.String({ description: "Filter tool_executions to a tool_name" })),
+      version: Type.Optional(
+        Type.String({ description: "Filter skill_versions to a skills_package_version" }),
+      ),
     }),
     async execute(_toolCallId, params) {
       const dbPath = t.config.dbPath;
