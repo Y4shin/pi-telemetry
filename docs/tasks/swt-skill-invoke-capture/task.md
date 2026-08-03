@@ -186,3 +186,39 @@ slice 5 (turn/turn attribution for the tool).
 - Minor defensive additions beyond spec: `undefined` skip, `Number.isNaN`
   guard for float, exhaustiveness `default` case — strengthen robustness
   without changing the contract.
+
+### Slice 1: swt-input-skill-invoke (landed)
+
+- Added `lastSkillInvokeEventId: string | null` to `RuntimeState` in
+  `src/state.ts` (initialized `null` in `createRuntimeState`) per arch-spec
+  Q1 decision; stores the generated `event_id` for downstream slices to
+  enrich/back-fill.
+- Created `src/capture/skills.ts` exporting `registerSkillCapture(pi, t)`,
+  which registers a `pi.on("input", …)` handler that detects `/skill:<name>`
+  prefixed input, skips `source:"extension"`, and writes one `session_events`
+  row of `type='skill_invoke'` (JSON payload: `skill_name`, `args_chars`,
+  `args_hash`, `input_source`) plus one `session_event_metadata` row
+  projecting `skill_name` (type=`string`) via the slice-6 `insertSkillMetadata`
+  helper.
+- The `event_id` is generated via `randomUUID()` and shared between the
+  `session_events` insert and the metadata projection; `INSERT OR IGNORE` on
+  `session_events.event_id` provides replay idempotency.
+- Privacy: stores only `args_chars` (byte-length via shared `textLength`
+  helper) + `args_hash` (sha256 via shared `sha256` helper), never arg text.
+  `skill_name` is a kebab-case identifier.
+- Handler body wrapped in `guard()`; `return {action:"continue"}` is outside
+  the guard, so it is returned even if the body throws — input is never
+  blocked or transformed.
+- Registered `registerSkillCapture` in `index.ts` (after
+  `registerSessionEventsCapture`, before `registerFeedback`) and re-exported
+  from `src/capture/index.ts` (barrel, additive).
+- Tests: 15 new cases in `test/capture/skills.test.ts` covering basic
+  `/skill:foo bar baz` row, rpc/interactive/extension sources, non-skill and
+  `/cmd` skipping, no-args, newlines, very long args, trailing-space-only,
+  malformed text, and a privacy test scanning all TEXT/BLOB columns across
+  5 tables for the secret arg string (zero matches).
+- All 179 tests pass across 29 suites; `tsc --noEmit` clean.
+- Notable: `/skill:` with empty skill name records a row with `skill_name=""`
+  (slice doc lists it as a failure mode but does not mandate skipping;
+  defensible — the invocation happened; downstream query filtering can
+  exclude empty names).
