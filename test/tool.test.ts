@@ -184,6 +184,23 @@ describe("query_telemetry tool", () => {
     assert.strictEqual(first[idx.errors], 1);
   });
 
+  it("skill_versions preset filtered by version returns one version's rows", async () => {
+    seedSkillEvents(db, now);
+    const stub = createL1Stub();
+    registerTelemetryTool(stub.pi, makeTelemetry(dbPath));
+    const result = await execute(stub, { query: "skill_versions", version: "2.5.1" });
+    assert.strictEqual(result.details.rowCount, 2);
+    const idx = {
+      version: result.details.columns.indexOf("skills_package_version"),
+      skill: result.details.columns.indexOf("skill_name"),
+    };
+    for (const row of result.details.rows) {
+      assert.strictEqual(row[idx.version], "2.5.1");
+    }
+    const skills = result.details.rows.map((r) => r[idx.skill]).sort();
+    assert.deepStrictEqual(skills, ["implement-task", "wayfinder"]);
+  });
+
   it("sql escape hatch runs raw SELECT", async () => {
     const stub = createL1Stub();
     registerTelemetryTool(stub.pi, makeTelemetry(dbPath));
