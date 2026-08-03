@@ -161,3 +161,28 @@ slice 5 (turn/turn attribution for the tool).
    `run_id`/`turn_id`/`turn_index` on the session's most-recent un-attributed
    `skill_invoke` row at `turn_start`; also project `run_id` as a metadata row
    (key=`run_id`, type=`string`) so the compare-versions join reaches `turns`.
+
+## Implementation notes
+
+### Slice 6: swt-queryability-schema (landed)
+
+- Added migration version 3 in `src/db.ts` creating `session_event_metadata`
+  (sparse EAV with the exact CHECK constraint from `bench-eav.mjs`) plus
+  `idx_sems_key_text`, `idx_sems_key_int`, and `idx_turns_run`.
+- Added `src/capture/skill-metadata.ts` exporting
+  `insertSkillMetadata(t, eventId, key, type, value)` — self-guarded, enqueues
+  `INSERT OR IGNORE` into the same buffer as `session_events`, maps JS values
+  to typed `value_*` columns, and skips `null` (and `undefined`).
+- Re-exported `insertSkillMetadata` and `MetadataType` from
+  `src/capture/index.ts` (barrel) for dependent slices.
+- Updated `test/db.test.ts` and `test/ddl-first-start.test.ts` to use
+  `MIGRATIONS.length` instead of hardcoded schema-version assertions;
+  added a v2→v3 migration test with row-preservation check.
+- Tests: 16 new cases in `test/capture/skill-metadata.test.ts` covering all
+  four types, null handling, replay idempotency, type-mismatch, self-guarding,
+  CHECK-constraint rejection, and `EXPLAIN QUERY PLAN` index usage.
+- All 164 tests pass; `tsc --noEmit` clean. Migration is additive and
+  idempotent; existing `session_events` rows are unaffected.
+- Minor defensive additions beyond spec: `undefined` skip, `Number.isNaN`
+  guard for float, exhaustiveness `default` case — strengthen robustness
+  without changing the contract.

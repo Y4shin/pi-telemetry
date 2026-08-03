@@ -4,7 +4,7 @@ slug: swt-queryability-schema
 title: "Apply prototype-chosen queryability approach (generated columns+indexes OR session_event_metadata join table) via user_version migration"
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: []
 ---
