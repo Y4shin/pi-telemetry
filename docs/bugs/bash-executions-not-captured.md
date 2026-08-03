@@ -8,10 +8,12 @@ fix_commit:
 promoted_to:
 ---
 
-> **Verdict: not a bug — working as designed.** The empty table reflects
-> usage (no user-typed `!`/`!!` commands), not a broken collector. See
-> `repro-bash-executions-not-captured.md` for the full trace and the green
-> `test/bash.test.ts`.
+> **Verdict: not a bug — deprecated by design.** The empty table reflects
+> the removal of the `user_bash` capture path (task: `deprecate-bash-executions`),
+> not a broken collector. The `bash_executions` DDL is retained for backward
+> compatibility with older in-flight extension versions; a later task may drop
+> it once all running agents have upgraded. See
+> `repro-bash-executions-not-captured.md` for the historical trace.
 
 # bash_executions table never populated
 
@@ -103,9 +105,11 @@ that flag was a false alarm based on the mistaken assumption that
 
 ## Fix summary
 
-No fix. By design. (SPEC.md line 480 reserves a `capture.bashCommand` flag
-for future full-command capture.) If richer per-command metrics for **agent**
-bash tool calls are wanted — `exit_code`, `command_hash`, `cwd`,
-`cancelled`, `truncated`, `output_chars` — that is a feature request needing
-a new capture hook (e.g., `tool_execution_*` filtered to `tool_name ===
-"bash"`), not a bug fix. Route via refine-idea / create-task.
+No code fix — the `bash_executions` table and `capture.bashCommand` flag are
+**deprecated** as of task `deprecate-bash-executions`. The table's code usage
+has been removed; the table DDL is kept for backward compatibility with older
+extension versions and can be dropped in a later task once all running agents
+have upgraded. Agent bash tool calls continue to be recorded in
+`tool_executions` (`tool_name='bash'`) as before. If richer per-command metrics
+for **agent** bash tool calls are wanted, that is a feature request, not a bug
+fix.

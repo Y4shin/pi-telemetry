@@ -98,6 +98,12 @@ CREATE TABLE IF NOT EXISTS tool_executions (
 CREATE INDEX IF NOT EXISTS idx_tool_session ON tool_executions(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_name    ON tool_executions(tool_name);
 
+-- DEPRECATED (task: deprecate-bash-executions): The bash_executions table is
+-- no longer written or read by current code. It is retained here for backward
+-- compatibility with older in-flight extension versions that may still INSERT
+-- into it at startup. A later task may drop this DDL once all running agents
+-- have upgraded past the bash_executions usage.
+
 CREATE TABLE IF NOT EXISTS bash_executions (
   bash_id           TEXT PRIMARY KEY,
   session_id        TEXT NOT NULL,
