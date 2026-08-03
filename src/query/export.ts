@@ -10,7 +10,6 @@ const ALL_TABLES = [
   "turns",
   "llm_requests",
   "tool_executions",
-  "bash_executions",
   "session_events",
   "feedback",
   "telemetry_meta",
@@ -47,7 +46,6 @@ function timeColumn(table: string): string | null {
     case "turns":
     case "llm_requests":
     case "tool_executions":
-    case "bash_executions":
       return "started_unix_ms";
     case "session_events":
     case "telemetry_meta":

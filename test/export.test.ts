@@ -95,7 +95,7 @@ describe("export", () => {
 
   it("exports all tables when no table is specified", async () => {
     const written = await exportDatabase(dbPath, { out: join(tmp, "dump") });
-    assert.strictEqual(written.length, 9);
+    assert.strictEqual(written.length, 8);
     for (const path of written) {
       const text = readFileSync(path, "utf8");
       assert.ok(text.includes("\n"));

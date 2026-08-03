@@ -15,7 +15,6 @@ import {
   registerTurnCapture,
   registerToolCapture,
   registerLlmCapture,
-  registerBashCapture,
   registerSessionEventsCapture,
 } from "../src/capture/index.ts";
 import { registerFeedback } from "../src/feedback.ts";
@@ -239,7 +238,6 @@ describe("duplicate key resilience", () => {
     registerTurnCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
     registerToolCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
     registerLlmCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
-    registerBashCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
     registerSessionEventsCapture(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
     registerFeedback(stub.pi, mockT as unknown as ReturnType<typeof createBuffer>);
 
