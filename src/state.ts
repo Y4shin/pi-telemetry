@@ -23,6 +23,7 @@ export interface RuntimeState {
   lineage: LineageState;
   stagedPromptChars: number | null;
   stagedSystemPromptChars: number | null;
+  lastSkillInvokeEventId: string | null;
   correlation(): {
     sessionId: string | null;
     runId: string | null;
@@ -56,6 +57,7 @@ export function createRuntimeState(): RuntimeState {
     },
     stagedPromptChars: null,
     stagedSystemPromptChars: null,
+    lastSkillInvokeEventId: null,
     correlation() {
       return {
         sessionId: state.sessionId,
