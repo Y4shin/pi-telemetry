@@ -4,7 +4,7 @@ type: feature
 slug: deprecate-bash-executions
 title: Deprecate bash_executions — remove write/read code usage, keep the DDL, mark deprecated
 map: deprecate-bash-executions
-status: ready
+status: done
 slices:
 - remove-bash-executions-usage
 - mark-bash-executions-deprecated
