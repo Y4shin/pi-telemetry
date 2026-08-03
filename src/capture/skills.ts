@@ -33,6 +33,15 @@ interface ResourcesDiscoverResult {
 
 let skillInfoCache: Map<string, SkillInfo> | null = null;
 
+/**
+ * In-memory association of skill name → most-recent skill_invoke event_id
+ * for the current process. Used by the telemetry_skill_context tool to
+ * correlate an explicit skill_name param to the right invocation row without
+ * a DB read (the row may still be buffered, not yet flushed). Best-effort:
+ * falls back to t.state.lastSkillInvokeEventId when the name is absent.
+ */
+const skillInvocations = new Map<string, string>();
+
 function parseSkillInput(text: string): { skillName: string; args: string } {
   const withoutPrefix = text.slice(SKILL_PREFIX.length);
   const firstSpace = withoutPrefix.indexOf(" ");
@@ -208,6 +217,11 @@ export function resetSkillVersionCache(): void {
   skillInfoCache = null;
 }
 
+/** Clears the in-memory skill-name → event-id map. Exported for test isolation. */
+export function resetSkillInvocations(): void {
+  skillInvocations.clear();
+}
+
 function insertSkillInvokeEvent(
   t: Telemetry,
   eventId: string,
@@ -299,6 +313,7 @@ function projectCapturedFields(
 }
 
 interface TelemetrySkillContextParams {
+  skill_name?: string;
   target?: string;
   map?: string;
   slice?: string;
@@ -411,7 +426,17 @@ function handleTelemetrySkillContext(
   params: TelemetrySkillContextParams,
 ): void {
   const { sessionId, runId, turnId } = t.state.correlation();
-  const eventId = t.state.lastSkillInvokeEventId;
+  // Correlate to the right skill invocation by explicit skill_name when the
+  // model passes one (in-memory map; the row may still be buffered, not yet
+  // flushed, so no DB read). Fall back to the most-recent invocation.
+  const namedMatch = params.skill_name && skillInvocations.get(params.skill_name);
+  const eventId = namedMatch || t.state.lastSkillInvokeEventId;
+  // When correlating by explicit skill_name, the event_id PK is authoritative —
+  // do NOT also require run_id/turn_id (the named row may not have been
+  // back-filled to the current turn, e.g. two skills before one turn). For
+  // the fallback (most-recent) path, keep the run/turn guard to confirm it's
+  // the current turn's invocation.
+  const byEventIdOnly = namedMatch !== undefined;
 
   if (!sessionId || !runId || !turnId || !eventId) {
     t.meta(
@@ -466,20 +491,20 @@ function handleTelemetrySkillContext(
     }
     if (extraKeysWritten === 0) {
       t.enqueue(
-        `UPDATE session_events
-         SET payload = json_set(payload, '$.extra', json('{}'))
-         WHERE event_id = ? AND run_id = ? AND turn_id = ?`,
-        [eventId, runId, turnId],
+        byEventIdOnly
+          ? `UPDATE session_events SET payload = json_set(payload, '$.extra', json('{}')) WHERE event_id = ?`
+          : `UPDATE session_events SET payload = json_set(payload, '$.extra', json('{}')) WHERE event_id = ? AND run_id = ? AND turn_id = ?`,
+        byEventIdOnly ? [eventId] : [eventId, runId, turnId],
       );
     }
   }
 
   for (const { path, value } of updates) {
     t.enqueue(
-      `UPDATE session_events
-       SET payload = json_set(payload, ?, json(?))
-       WHERE event_id = ? AND run_id = ? AND turn_id = ?`,
-      [path, jsonLiteral(value), eventId, runId, turnId],
+      byEventIdOnly
+        ? `UPDATE session_events SET payload = json_set(payload, ?, json(?)) WHERE event_id = ?`
+        : `UPDATE session_events SET payload = json_set(payload, ?, json(?)) WHERE event_id = ? AND run_id = ? AND turn_id = ?`,
+      byEventIdOnly ? [path, jsonLiteral(value), eventId] : [path, jsonLiteral(value), eventId, runId, turnId],
     );
   }
 
@@ -502,6 +527,7 @@ export function registerSkillCapture(pi: ExtensionAPI, t: Telemetry): void {
 
       insertSkillInvokeEvent(t, eventId, skillName, args, event.source);
       t.state.lastSkillInvokeEventId = eventId;
+      skillInvocations.set(skillName, eventId);
       insertSkillMetadata(t, eventId, "skill_name", "string", skillName);
 
       const { skillSource, packageVersion, captureKeys } = getSkillInfo(pi, t, skillName);
@@ -542,8 +568,9 @@ export function registerSkillCapture(pi: ExtensionAPI, t: Telemetry): void {
     name: "telemetry_skill_context",
     label: "Telemetry Skill Context",
     description:
-      "Attach dynamic metadata (target, map, slice, slice_count, extra) to the current skill invocation.",
+      "Attach dynamic metadata (target, map, slice, slice_count, extra) to the current skill invocation. Pass skill_name to correlate to the skill you are running inside.",
     parameters: Type.Object({
+      skill_name: Type.Optional(Type.String({ description: "Name of the skill you are running inside (e.g. 'implement-task'), to correlate this metadata to the right invocation. Omit to use the most-recent invocation." })),
       target: Type.Optional(Type.String({ description: "Target slug" })),
       map: Type.Optional(Type.String({ description: "Map slug" })),
       slice: Type.Optional(Type.String({ description: "Slice slug" })),

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../../src/db.ts";
 import { createBuffer } from "../../src/buffer.ts";
-import { registerSkillCapture, resetSkillVersionCache } from "../../src/capture/skills.ts";
+import { registerSkillCapture, resetSkillVersionCache, resetSkillInvocations } from "../../src/capture/skills.ts";
 import { sha256, textLength } from "../../src/hash.ts";
 import type { TelemetryConfig } from "../../src/config.ts";
 import { createL1Stub } from "../helpers/l1-stub.ts";
@@ -47,6 +47,7 @@ describe("registerSkillCapture input handler", () => {
 
   async function setupSession(stub: ReturnType<typeof createL1Stub>, t: ReturnType<typeof createBuffer>, sessionId: string) {
     resetSkillVersionCache();
+    resetSkillInvocations();
     registerSkillCapture(stub.pi, t);
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => sessionId } as unknown as ExtensionContext["sessionManager"],
@@ -1164,6 +1165,64 @@ describe("registerSkillCapture input handler", () => {
         .prepare("SELECT * FROM telemetry_meta WHERE event = 'handler_error'")
         .all() as Array<Record<string, unknown>>;
       assert.ok(meta.length > 0, "expected handler_error meta row");
+    });
+
+    it("correlates to the named skill invocation by explicit skill_name", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-tool-named");
+      // Two skill invocations in the same session: foo first, then bar.
+      await stub.fire("input", inputEvent("/skill:foo t1", "interactive"));
+      await stub.fire("input", inputEvent("/skill:bar t2", "interactive"));
+      t.flush();
+      // Both rows exist; lastSkillInvokeEventId points at bar (most-recent).
+      t.state.runId = "run-named";
+      t.state.turnId = "turn-named";
+      t.state.turnIndex = 1;
+      await stub.fire("turn_start", turnStartEvent(1));
+      t.flush();
+
+      const def = findTool(stub);
+      // Enrich foo BY NAME — not the most-recent (bar).
+      await def.execute("tc-named", { skill_name: "foo", sliceCount: 3 });
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY unix_ms")
+        .all("sess-tool-named") as Array<{ event_id: string; payload: string }>;      const fooRow = rows.find((r) => JSON.parse(r.payload).skill_name === "foo");
+      const barRow = rows.find((r) => JSON.parse(r.payload).skill_name === "bar");
+      assert.ok(fooRow, "foo row should exist");
+      assert.ok(barRow, "bar row should exist");
+      // foo got the enrichment (slice_count: 3); bar did not.
+      assert.strictEqual(JSON.parse(fooRow!.payload).slice_count, 3);
+      assert.strictEqual(JSON.parse(barRow!.payload).slice_count, undefined);
+    });
+
+    it("falls back to most-recent when skill_name is omitted", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      await setupSession(stub, t, "sess-tool-fallback");
+      await stub.fire("input", inputEvent("/skill:foo t1", "interactive"));
+      await stub.fire("input", inputEvent("/skill:bar t2", "interactive"));
+      t.flush();
+      t.state.runId = "run-fallback";
+      t.state.turnId = "turn-fallback";
+      t.state.turnIndex = 1;
+      await stub.fire("turn_start", turnStartEvent(1));
+      t.flush();
+
+      const def = findTool(stub);
+      // No skill_name → fall back to most-recent (bar).
+      await def.execute("tc-fallback", { sliceCount: 2 });
+      t.flush();
+
+      const rows = db
+        .prepare("SELECT payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke' ORDER BY unix_ms")
+        .all("sess-tool-fallback") as Array<{ payload: string }>;
+      const fooRow = rows.find((r) => JSON.parse(r.payload).skill_name === "foo");
+      const barRow = rows.find((r) => JSON.parse(r.payload).skill_name === "bar");
+      assert.strictEqual(JSON.parse(barRow!.payload).slice_count, 2);
+      assert.strictEqual(JSON.parse(fooRow!.payload).slice_count, undefined);
     });
   });
 });
