@@ -183,6 +183,29 @@ export const MIGRATIONS: readonly Migration[] = [
   tx_duration_ms INTEGER NOT NULL
 );`,
   },
+  {
+    version: 3,
+    description: "add session_event_metadata and turns run index",
+    sql: `CREATE TABLE IF NOT EXISTS session_event_metadata (
+  event_id   TEXT NOT NULL REFERENCES session_events(event_id),
+  key        TEXT NOT NULL,
+  type       TEXT NOT NULL,
+  value_text TEXT,
+  value_int  INTEGER,
+  value_real REAL,
+  value_bool INTEGER,
+  PRIMARY KEY (event_id, key),
+  CHECK (
+       (type = 'string' AND value_text IS NOT NULL AND value_int IS NULL AND value_real IS NULL AND value_bool IS NULL)
+    OR (type = 'int'    AND value_int  IS NOT NULL AND value_text IS NULL AND value_real IS NULL AND value_bool IS NULL)
+    OR (type = 'float'  AND value_real IS NOT NULL AND value_text IS NULL AND value_int  IS NULL AND value_bool IS NULL)
+    OR (type = 'bool'   AND value_bool IS NOT NULL AND value_text IS NULL AND value_int  IS NULL AND value_real IS NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_sems_key_text ON session_event_metadata(key, value_text);
+CREATE INDEX IF NOT EXISTS idx_sems_key_int  ON session_event_metadata(key, value_int);
+CREATE INDEX IF NOT EXISTS idx_turns_run ON turns(run_id);`,
+  },
 ];
 
 function isBusyError(err: unknown): boolean {
