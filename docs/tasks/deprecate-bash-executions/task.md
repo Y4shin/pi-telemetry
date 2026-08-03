@@ -132,3 +132,15 @@ Added deprecation comments and documentation-only notes referencing task slug
 - `skills/telemetry-eval-analyze/resources/schema.md`: `bash_executions` table section and its join-map line marked deprecated.
 
 Validation: `tsc --noEmit` clean; `npm test` 147/147 green; diff audit confirmed comment-only changes in `src/db.ts` and `src/config.ts` (no non-comment code changes). No divergence from plan.
+
+### Architecture lesson — removal-slice boundary
+
+The original plan had three slices: (1) remove the `src/` write path, (2)
+remove the `src/` read path, (3) strip test refs + deprecate. The first tdd-worker
+correctly stopped with an uncertainty note: `tsconfig.json` `include` covers
+`test/**/*.ts`, so removing `registerBashCapture` from `src/` makes `tsc` fail
+on `test/bash.test.ts` and `test/duplicate-key-resilience.test.ts` until those
+references are also removed. A src-only removal cannot leave a compiling tree.
+Re-planned into two slices — `remove-bash-executions-usage` (src + tests
+together) and `mark-bash-executions-deprecated` (comments/docs) — each leaving
+a compiling + green tree. Lesson recorded in `docs/testing.md`.
