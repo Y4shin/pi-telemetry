@@ -84,6 +84,9 @@ describe("db", () => {
       CREATE TABLE flush_log (id INTEGER PRIMARY KEY AUTOINCREMENT, unix_ms INTEGER NOT NULL, session_id TEXT, row_count INTEGER NOT NULL, tx_duration_ms INTEGER NOT NULL);
       PRAGMA user_version = 2;
     `);
+    v2Db.prepare(
+      "INSERT INTO session_events (event_id, session_id, unix_ms, type, payload) VALUES (?, ?, ?, ?, ?)",
+    ).run("evt-pre-v3", "sess-pre-v3", 12345, "compaction", '{"reason":"threshold"}');
     v2Db.close();
 
     openDatabase(dbPath);
@@ -102,10 +105,15 @@ describe("db", () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_sems_%'")
       .all() as Array<{ name: string }>;
     assert.deepStrictEqual(indexes.map((r) => r.name).sort(), ["idx_sems_key_int", "idx_sems_key_text"]);
+    const preserved = db
+      .prepare("SELECT type, payload FROM session_events WHERE event_id = ?")
+      .get("evt-pre-v3") as { type: string; payload: string };
+    assert.strictEqual(preserved.type, "compaction");
+    assert.strictEqual(preserved.payload, '{"reason":"threshold"}');
     db.close();
   });
 
-  it("migrates an existing v1 database to v2 by adding flush_log", () => {
+  it("migrates an existing v1 database to latest by applying all migrations", () => {
     const v1Db = new DatabaseSync(dbPath);
     v1Db.exec(`
       CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_unix_ms INTEGER NOT NULL);
