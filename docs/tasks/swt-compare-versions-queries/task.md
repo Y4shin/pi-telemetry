@@ -116,3 +116,28 @@ only for grouping dimensions. No new tables/migrations — pure read-only querie
 - Verification: `node --test test/canned.test.ts test/tool.test.ts` 31/31;
   `npm test` 213/213; `npm run check` clean.
 - Deviation report: `docs/tasks/swt-compare-versions-queries/deviation-reports/swt-skill-cost-preset.md`.
+
+### swt-tm-skills-command (landed)
+
+- Added `/tm skills` subcommand to `src/query/commands.ts`: `renderSkills(dbPath)`
+  calls `runCanned(dbPath, "skill_cost")` and renders via the shared
+  `formatResult` table formatter. Registered `case "skills":` in the
+  `handleCommand` switch.
+- Updated both the `/telemetry` and `/tm` command description strings to list
+  `skills` in the subcommand list. The `/tm` description was changed from
+  `"Alias for /telemetry."` to the full duplicated description string so the
+  alias is self-describing (minor maintenance coupling: `/tm` won't auto-track
+  `/telemetry` if the latter changes).
+- Reuses the `skill_cost` preset from slice 1 — no second query runner, no
+  second table formatter. Output columns are the arch-spec columns
+  (`skills_package_version, skill_name, invocations, cost_usd, tokens,
+  tool_errors`); the slice doc's "last target" / "most recent invocation time"
+  columns were never in the approved `skill_cost` SQL (arch spec is
+  authoritative where it conflicts with slice docs).
+- Tests: `test/commands.test.ts` — three `skills` tests (normal output table
+  rows, newest-version-first ordering, empty-DB no-data message) plus a
+  description-listing assertion. Reused the `test/helpers/fixture-skill-events.ts`
+  seeder from slice 1.
+- Verification: `npm test` 216/216 across 33 suites; `npm run check` (tsc
+  --noEmit) clean.
+- Deviation report: `docs/tasks/swt-compare-versions-queries/deviation-reports/swt-tm-skills-command.md`.
