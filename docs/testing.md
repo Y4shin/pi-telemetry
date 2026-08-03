@@ -109,6 +109,16 @@ buffer flush: row_count, tx_duration_ms, optional session_id).
 
 Config tests pass an explicit `env` object to `loadConfig()` to avoid mutating `process.env`. L2 tests set `PI_TELEMETRY_DB_PATH` before creating the session and clean it up afterward.
 
+## Removal-slice boundary caveat
+
+`tsconfig.json` `include` covers `test/**/*.ts`, so a slice that deletes a
+`src/` symbol imported by tests cannot leave `tsc` clean until those test
+references are also removed in the same slice. Plan removals that touch
+imported symbols as one cohesive slice (src + tests together), not as a
+src-only slice followed by a test-cleanup slice. (Learned from
+`deprecate-bash-executions`: the original 3-slice plan was unworkable and
+was re-planned into 2.)
+
 ## Python eval tooling (off-repo, read-only)
 
 Two skills authored in-repo at `skills/telemetry-eval-{setup,analyze}/`

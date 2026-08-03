@@ -1,5 +1,9 @@
 # Task Changelog
 
+## 2026-08-03 — Deprecate bash_executions table (deprecate-bash-executions)
+
+Removed all `bash_executions` write/read code usage: deleted `src/capture/bash.ts` and `test/bash.test.ts`, dropped the table from `export.ts`/`commands.ts`, and stripped every test reference (`duplicate-key-resilience`, `privacy`, `fixture-db`, `canned`, `commands`, `export` count 9→8). The table DDL and the dead `capture.bashCommand` flag are **kept** (backward compat for older in-flight extension versions) and marked deprecated in `src/db.ts`, `src/config.ts`, `SPEC.md`, the bug doc, and the analyze skill `schema.md`. Re-planned from 3 slices to 2 after the first tdd-worker found `tsconfig.json` includes `test/**/*.ts`, so src removals and test cleanups must land together. Suite 147/147 green, tsc clean.
+
 ## 2026-07-31 — Subagent parentage env-var fallback (subagent-parentage-not-recorded)
 
 Fixed: `readLineageFromEnv` only read `PI_TELEMETRY_*` env vars, but pi-subagents sets `PI_SUBAGENT_*` on child processes. Added fallback reads so subagent sessions now stamp `parent_session_id`, `parent_run_id`, `depth`, `agent_label` from `PI_SUBAGENT_PARENT_SESSION` / `_PARENT_RUN_ID` / `_PARENT_DEPTH` / `_CHILD_AGENT`. Empty strings treated as absent (non-fanout children). Added `test/subagent-parentage.test.ts` (3 tests); updated lineage + capture test env cleanup to isolate `PI_SUBAGENT_*`. Suite 150→153 green, tsc clean. Bug closed + archived.

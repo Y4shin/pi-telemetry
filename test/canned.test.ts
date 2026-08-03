@@ -115,7 +115,6 @@ describe("canned queries", () => {
     // Truncate all measurement tables so only schema remains.
     emptyDb.exec("PRAGMA foreign_keys=OFF");
     emptyDb.exec("DELETE FROM feedback");
-    emptyDb.exec("DELETE FROM bash_executions");
     emptyDb.exec("DELETE FROM tool_executions");
     emptyDb.exec("DELETE FROM llm_requests");
     emptyDb.exec("DELETE FROM turns");

@@ -13,7 +13,6 @@ import piTelemetryExtension from "../index.ts";
 const PROMPT_TEXT = "PRIVACY-PROMPT-sentinel-7a3f9e2b";
 const TOOL_ARGS_TEXT = "PRIVACY-TOOL-ARGS-sentinel-8c4d1e5a";
 const TOOL_RESULT_TEXT = "PRIVACY-TOOL-RESULT-sentinel-9e7b2c4d";
-const BASH_COMMAND = "printf 'PRIVACY-BASH-COMMAND-sentinel-1f6a8b3c'";
 const FEEDBACK_DATA = { note: "PRIVACY-FEEDBACK-sentinel-4d9e7a1b" };
 
 interface Leak {
@@ -93,18 +92,6 @@ describe("privacy gate", () => {
 
     await session.prompt(PROMPT_TEXT);
 
-    // Bash capture path: emit user_bash and exercise the returned operations.
-    const bashResult = await session.extensionRunner.emitUserBash({
-      type: "user_bash",
-      command: BASH_COMMAND,
-      cwd: tmp,
-      excludeFromContext: false,
-    });
-    await bashResult!.operations!.exec(BASH_COMMAND, tmp, {
-      onData: () => {},
-      signal: new AbortController().signal,
-    });
-
     // Session-shape events.
     const model = { provider: "pi-telemetry-test", id: "test-model" } as unknown as Model<any>;
     await session.extensionRunner.emit({
@@ -169,12 +156,6 @@ describe("privacy gate", () => {
     >;
     assert.ok(toolRow, "tool_executions row expected");
 
-    const bashRow = db.prepare("SELECT * FROM bash_executions LIMIT 1").get() as Record<
-      string,
-      unknown
-    >;
-    assert.ok(bashRow, "bash_executions row expected");
-
     const eventRow = db.prepare("SELECT * FROM session_events LIMIT 1").get() as Record<
       string,
       unknown
@@ -191,13 +172,7 @@ describe("privacy gate", () => {
     assert.strictEqual(toolRow.args_json, null, "tool_executions.args_json should be NULL by default");
     assert.strictEqual(toolRow.result_text, null, "tool_executions.result_text should be NULL by default");
 
-    // Bash command must be hashed, not stored literally.
-    const bashContentLeaks = db
-      .prepare("SELECT COUNT(*) as n FROM bash_executions WHERE command_hash IS NULL OR command_hash = ''")
-      .get() as { n: number };
-    assert.strictEqual(bashContentLeaks.n, 0, "bash_executions rows must have a command_hash");
-
-    const sentinels = [PROMPT_TEXT, TOOL_ARGS_TEXT, TOOL_RESULT_TEXT, BASH_COMMAND];
+    const sentinels = [PROMPT_TEXT, TOOL_ARGS_TEXT, TOOL_RESULT_TEXT];
     const leaks = findSentinels(db, sentinels);
 
     db.close();
