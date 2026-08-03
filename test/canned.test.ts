@@ -44,6 +44,7 @@ describe("canned queries", () => {
       "feedback",
       "agent_tree",
       "skill_cost",
+      "skill_versions",
     ];
     for (const name of required) {
       assert.ok(CANNED[name], `missing canned query ${name}`);
@@ -163,6 +164,41 @@ describe("canned queries", () => {
   it("skill_cost uses indexes", async () => {
     seedSkillEvents(db, now);
     const plan = db.prepare(`EXPLAIN QUERY PLAN ${CANNED.skill_cost.sql}`).all() as Array<{ detail: string }>;
+    const details = plan.map((r) => r.detail).join("\n");
+    assert.ok(!details.includes("SCAN"), `expected no full table scans, got:\n${details}`);
+    assert.ok(details.includes("idx_sems_key_text"), "should use idx_sems_key_text");
+    assert.ok(details.includes("idx_turns_run"), "should use idx_turns_run");
+  });
+
+  it("skill_versions filters to a single version", async () => {
+    seedSkillEvents(db, now);
+    const table = await runCanned(dbPath, "skill_versions", { verFilter: "2.5.1" });
+    assert.deepStrictEqual(table.columns, [
+      "skills_package_version",
+      "skill_name",
+      "invocations",
+      "cost_usd",
+      "tokens",
+      "tool_errors",
+    ]);
+    assert.strictEqual(table.rows.length, 2);
+    const asObjects = table.rows.map((r) => ({
+      version: r[0] as string,
+      skill: r[1] as string,
+      invocations: r[2] as number,
+      cost_usd: r[3] as number,
+      tokens: r[4] as number,
+      tool_errors: r[5] as number,
+    }));
+    assert.deepStrictEqual(asObjects, [
+      { version: "2.5.1", skill: "implement-task", invocations: 2, cost_usd: 0.3, tokens: 150, tool_errors: 1 },
+      { version: "2.5.1", skill: "wayfinder", invocations: 1, cost_usd: 0.015, tokens: 30, tool_errors: 1 },
+    ]);
+  });
+
+  it("skill_versions uses indexes", async () => {
+    seedSkillEvents(db, now);
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${CANNED.skill_versions.sql}`).all() as Array<{ detail: string }>;
     const details = plan.map((r) => r.detail).join("\n");
     assert.ok(!details.includes("SCAN"), `expected no full table scans, got:\n${details}`);
     assert.ok(details.includes("idx_sems_key_text"), "should use idx_sems_key_text");
