@@ -352,7 +352,8 @@ export function registerTelemetryCommands(pi: ExtensionAPI, t: Telemetry): void 
   });
 
   pi.registerCommand("tm", {
-    description: "Alias for /telemetry.",
+    description:
+      "Telemetry query surface. Subcommands: status, session, cost [today|week|all], errors [--since], feedback [--kind --source --since], tree, export [--table --from --to --out], sql \"SELECT ...\", skills",
     handler: handler as unknown as (args: string, ctx: ExtensionCommandContext) => Promise<void>,
   });
 }

@@ -71,6 +71,9 @@ describe("telemetry commands", () => {
     const stub = createL1Stub();
     registerTelemetryCommands(stub.pi, makeTelemetry(dbPath));
     assert.deepStrictEqual(stub.commands.map((c) => c.name).sort(), ["telemetry", "tm"]);
+    for (const c of stub.commands) {
+      assert.ok((c.options as CommandDef).description.includes("skills"), `${c.name} description lists skills`);
+    }
   });
 
   it("status shows DB path, size, counts, and meta events", async () => {
