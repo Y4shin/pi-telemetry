@@ -468,8 +468,8 @@ function handleTelemetrySkillContext(
       t.enqueue(
         `UPDATE session_events
          SET payload = json_set(payload, '$.extra', json('{}'))
-         WHERE event_id = ?`,
-        [eventId],
+         WHERE event_id = ? AND run_id = ? AND turn_id = ?`,
+        [eventId, runId, turnId],
       );
     }
   }
