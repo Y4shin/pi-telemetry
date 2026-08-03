@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, ResourcesDiscoverEvent, ResourcesDiscoverResult, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
 import { sha256, textLength } from "../hash.ts";
@@ -11,6 +11,20 @@ const SKILL_PREFIX = "/skill:";
 interface SkillPackageInfo {
   skillSource: string | null;
   packageVersion: string | null;
+}
+
+// These types mirror the Pi SDK shapes but are not re-exported from the
+// package entry point, so we keep local structural copies.
+interface ResourcesDiscoverEvent {
+  type: "resources_discover";
+  cwd: string;
+  reason: "startup" | "reload";
+}
+
+interface ResourcesDiscoverResult {
+  skillPaths?: string[];
+  promptPaths?: string[];
+  themePaths?: string[];
 }
 
 let skillVersionCache: Map<string, SkillPackageInfo> | null = null;
@@ -95,22 +109,17 @@ function enrichSkillInvokePayload(
   const sessionId = t.state.sessionId;
   if (!sessionId) return;
 
+  // json_quote maps SQL NULL to JSON null and SQL text to a JSON string,
+  // so missing package info becomes explicit nulls without removing sibling keys.
   t.enqueue(
     `UPDATE session_events
-     SET payload = (
-       SELECT json_object(
-         'skill_name', json_extract(payload, '$.skill_name'),
-         'args_chars', json_extract(payload, '$.args_chars'),
-         'args_hash', json_extract(payload, '$.args_hash'),
-         'input_source', json_extract(payload, '$.input_source'),
-         'skill_source', ?,
-         'skills_package_version', ?
-       )
-       FROM session_events
-       WHERE event_id = ?
+     SET payload = json_set(
+       payload,
+       '$.skill_source', json_quote(?),
+       '$.skills_package_version', json_quote(?)
      )
      WHERE event_id = ?`,
-    [skillSource, packageVersion, eventId, eventId],
+    [skillSource, packageVersion, eventId],
   );
 
   insertSkillMetadata(t, eventId, "skills_package_version", "string", packageVersion);
