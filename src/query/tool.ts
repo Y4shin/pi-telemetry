@@ -13,6 +13,7 @@ const PRESET_NAMES = [
   "ttft_by_model",
   "context_growth",
   "agent_tree",
+  "skill_cost",
 ] as const;
 
 type PresetName = typeof PRESET_NAMES[number];
@@ -74,12 +75,12 @@ export function registerTelemetryTool(pi: ExtensionAPI, t: Telemetry): void {
     name: "query_telemetry",
     label: "Query Telemetry",
     description:
-      "Query the local pi-telemetry database. Use named presets (query) first: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree. Optional filters: since, model, kind, source, session, tool. For custom analysis, supply raw sql as a SELECT statement (read-only, LIMIT 500 injected, 3s timeout).",
+      "Query the local pi-telemetry database. Use named presets (query) first: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost. Optional filters: since, model, kind, source, session, tool. For custom analysis, supply raw sql as a SELECT statement (read-only, LIMIT 500 injected, 3s timeout).",
     parameters: Type.Object({
       query: Type.Optional(
         StringEnum(PRESET_NAMES, {
           description:
-            "Named preset. Valid: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree",
+            "Named preset. Valid: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost",
         }),
       ),
       sql: Type.Optional(
