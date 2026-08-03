@@ -1,5 +1,20 @@
 # Task Changelog
 
+## 2026-08-03 — Skill invocation capture (swt-skill-invoke-capture)
+
+Feature A of the skill-workflow-telemetry map. Records `/skill:<name>`
+invocations (the `input` event seam, TUI/RPC/print) with skill name + args
+length/hash, the skills-package version (resolved via `getCommands()` +
+`package.json` walk), and skill-declared metadata (frontmatter
+`metadata.capture` keys + a `telemetry_skill_context` tool for dynamic
+mid-run enrichment). Schema = Option D sparse EAV: `session_event_metadata`
+(table + CHECK constraint, migration v3) is the typed queryable projection;
+`session_events` keeps the JSON payload as source of truth. `turn_start`
+back-fills `run_id`/`turn_id`/`turn_index` (native cols, migration v4) for the
+compare-versions join. 6 slices schema-first (`[6]→[1]→[2,3,5]→[4]`); 207
+tests green (was 147, +60), tsc clean. Zero new runtime deps (zero-dep
+frontmatter extractor). No UI work.
+
 ## 2026-08-03 — Deprecate bash_executions table (deprecate-bash-executions)
 
 Removed all `bash_executions` write/read code usage: deleted `src/capture/bash.ts` and `test/bash.test.ts`, dropped the table from `export.ts`/`commands.ts`, and stripped every test reference (`duplicate-key-resilience`, `privacy`, `fixture-db`, `canned`, `commands`, `export` count 9→8). The table DDL and the dead `capture.bashCommand` flag are **kept** (backward compat for older in-flight extension versions) and marked deprecated in `src/db.ts`, `src/config.ts`, `SPEC.md`, the bug doc, and the analyze skill `schema.md`. Re-planned from 3 slices to 2 after the first tdd-worker found `tsconfig.json` includes `test/**/*.ts`, so src removals and test cleanups must land together. Suite 147/147 green, tsc clean.
