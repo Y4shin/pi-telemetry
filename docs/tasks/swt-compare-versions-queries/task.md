@@ -5,12 +5,11 @@ slug: swt-compare-versions-queries
 title: Canned queries + /tm command to compare metrics across skills-package versions and skills
 map: skill-workflow-telemetry
 status: ready
-blocked_by: [swt-skills-consent-edits]
+blocked_by: []
 slices:
 - swt-skill-cost-preset
 - swt-tm-skills-command
 - swt-skill-versions-preset
-blocked_by: '["swt-skills-consent-edits"]'
 ---
 
 ## User-visible outcome
