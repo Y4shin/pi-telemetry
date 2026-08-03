@@ -286,3 +286,37 @@ slice 5 (turn/turn attribution for the tool).
   (2) metadata key uses the capture identifier itself (e.g. `target` →
   key `target`), matching the general rule over the slice-doc example;
   (3) named-arg syntax implemented but only positional capture is tested.
+
+### Slice 5: swt-turn-start-backfill (landed)
+
+- Added a `turn_start` handler in `registerSkillCapture` (`src/capture/skills.ts`)
+  that reads `t.state.runId`/`turnId`/`turnIndex`/`lastSkillInvokeEventId` and,
+  when a prior `skill_invoke` event exists, issues
+  `UPDATE session_events SET run_id=?, turn_id=?, turn_index=? WHERE event_id=?`
+  to attribute the invocation to the turn it started. The precise `event_id`
+  (stored by slice 1 in `t.state.lastSkillInvokeEventId`) is used, so the
+  slice-doc's `ORDER BY unix_ms DESC LIMIT 1` form was not needed.
+- Projects `run_id` as a typed `session_event_metadata` row (key=`run_id`,
+  type=`string`) via `insertSkillMetadata`, so the compare-versions EAV join
+  can reach `turns`.
+- `lastSkillInvokeEventId` is intentionally left set after back-fill (consistent
+  with the task description; a future slice may clear it).
+- **Migration version 4** added in `src/db.ts`: `session_events` lacked the
+  `run_id`/`turn_id`/`turn_index` columns the arch spec assumed. Added them
+  (plus supporting indexes) via a new forward-only, idempotent migration using
+  a conditional `addColumnIfMissing` helper (PRAGMA table_info check + benign
+  "duplicate column name" race tolerance). This was required to keep
+  `test/ddl-first-start.test.ts` green under 5 concurrent first-starts (raw
+  `ALTER TABLE ADD COLUMN` is not concurrent-safe).
+- **`Migration.apply` extension:** added an optional `apply(db) => void` field
+  to the `Migration` interface so migration 4 can perform conditional,
+  idempotent DDL beyond the statement-array form.
+- Tests: 4 new cases in `test/capture/skills.test.ts` (attribute most-recent
+  skill_invoke; no-op when no skill input preceded the turn; back-fill only
+  the most-recent of two skill inputs; no-op with no active session), plus
+  `test/db.test.ts` updated to assert `MIGRATIONS.length`.
+- All 198 tests pass across 32 suites; `tsc --noEmit` clean.
+- Divergence (noted for coherence-refactor review): the schema addition
+  (migration 4) and the `Migration.apply` mechanism are necessary planning
+  gaps — the arch spec should have specified them. Both are SPEC §8 compliant
+  (nullable columns, forward-only, idempotent).
