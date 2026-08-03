@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, InputEvent, InputEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult } from "@earendil-works/pi-coding-agent";
 import type { Telemetry } from "../state.ts";
 import { guard } from "../state.ts";
 import { sha256, textLength } from "../hash.ts";
@@ -45,7 +45,7 @@ function insertSkillInvokeEvent(
 }
 
 export function registerSkillCapture(pi: ExtensionAPI, t: Telemetry): void {
-  pi.on("input", async (event: InputEvent): Promise<InputEventResult> => {
+  pi.on("input", async (event: InputEvent, _ctx: ExtensionContext): Promise<InputEventResult> => {
     guard(t, () => {
       if (event.source === "extension") return;
       if (!event.text.startsWith(SKILL_PREFIX)) return;
