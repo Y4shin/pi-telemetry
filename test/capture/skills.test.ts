@@ -537,4 +537,39 @@ describe("registerSkillCapture input handler", () => {
       assert.strictEqual(JSON.parse(rows[1].payload).skills_package_version, "3.0.0");
     });
   });
+
+  describe("frontmatter metadata capture", () => {
+    it("populates a single captured slug from positional args", async () => {
+      const stub = createL1Stub();
+      const t = createBuffer(makeConfig(dbPath), db);
+      const skillDir = join(tmp, "frontmatter", "skills", "implement-task");
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      writeFileSync(
+        skillPath,
+        "---\nmetadata:\n  telemetry:\n    capture: target\n---\n# implement-task\n",
+      );
+      writePackageJson(join(tmp, "frontmatter"), { name: "task-workflow", version: "2.5.1" });
+
+      (stub.pi as ExtensionAPI).getCommands = () => [makeSkillCommand("implement-task", skillPath, skillDir)];
+      await setupSession(stub, t, "sess-frontmatter-1");
+
+      await stub.fire("input", inputEvent("/skill:implement-task pi-telemetry", "interactive"));
+      t.flush();
+
+      const row = db
+        .prepare("SELECT event_id, payload FROM session_events WHERE session_id = ? AND type = 'skill_invoke'")
+        .get("sess-frontmatter-1") as { event_id: string; payload: string };
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      assert.strictEqual(payload.target, "pi-telemetry");
+
+      const meta = db
+        .prepare("SELECT key, type, value_text FROM session_event_metadata WHERE event_id = ? ORDER BY key")
+        .all(row.event_id) as Array<{ key: string; type: string; value_text: string | null }>;
+      const targetMeta = meta.find((m) => m.key === "target");
+      assert.ok(targetMeta, "expected target metadata row");
+      assert.strictEqual(targetMeta.type, "string");
+      assert.strictEqual(targetMeta.value_text, "pi-telemetry");
+    });
+  });
 });
