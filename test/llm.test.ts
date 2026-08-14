@@ -156,6 +156,112 @@ describe("llm request capture", () => {
     assert.strictEqual(row.retry_after_ms, 3000);
   });
 
+  it("parses HTTP-date retry-after header into a positive ms wait", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    const futureDate = new Date(clock + 5000).toUTCString();
+    await stub.fire("after_provider_response", { status: 429, headers: { "retry-after": futureDate } });
+    clock += 80;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.http_status, 429);
+    assert.strictEqual(row.retry_after_ms, 5000);
+
+    const meta = db.prepare("SELECT * FROM telemetry_meta WHERE session_id = ?").all("sess-llm") as Array<Record<string, unknown>>;
+    assert.strictEqual(meta.length, 0);
+  });
+
+  it("records null retry_after_ms and a meta note for past HTTP-date", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    const pastDate = new Date(clock - 500).toUTCString();
+    await stub.fire("after_provider_response", { status: 429, headers: { "retry-after": pastDate } });
+    clock += 80;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.http_status, 429);
+    assert.strictEqual(row.retry_after_ms, null);
+
+    const meta = db.prepare("SELECT * FROM telemetry_meta WHERE session_id = ?").all("sess-llm") as Array<Record<string, unknown>>;
+    assert.strictEqual(meta.length, 1);
+    assert.strictEqual(meta[0].level, "warn");
+    assert.strictEqual(meta[0].event, "handler_error");
+  });
+
+  it("records null retry_after_ms and a meta note for unparseable retry-after", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    await stub.fire("after_provider_response", { status: 429, headers: { "retry-after": "abc" } });
+    clock += 80;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.http_status, 429);
+    assert.strictEqual(row.retry_after_ms, null);
+
+    const meta = db.prepare("SELECT * FROM telemetry_meta WHERE session_id = ?").all("sess-llm") as Array<Record<string, unknown>>;
+    assert.strictEqual(meta.length, 1);
+    assert.strictEqual(meta[0].level, "warn");
+    assert.strictEqual(meta[0].event, "handler_error");
+  });
+
+  it("records null retry_after_ms and no meta note when retry-after header is absent", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    await stub.fire("after_provider_response", { status: 429, headers: {} });
+    clock += 80;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.http_status, 429);
+    assert.strictEqual(row.retry_after_ms, null);
+
+    const meta = db.prepare("SELECT * FROM telemetry_meta WHERE session_id = ?").all("sess-llm") as Array<Record<string, unknown>>;
+    assert.strictEqual(meta.length, 0);
+  });
+
   it("swallows message_end without matching message_start", async () => {
     const stub = createL1Stub();
     let clock = 1000;

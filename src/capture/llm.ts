@@ -32,12 +32,24 @@ function getMessageSignature(message: AssistantMessage): string {
   return parts.join("|");
 }
 
-function parseRetryAfterMs(headers: Record<string, string>): number | null {
+function parseRetryAfterMs(
+  headers: Record<string, string>,
+  responseReceivedMs: number,
+): number | null {
   const value = headers["retry-after"] ?? headers["Retry-After"];
   if (!value) return null;
+
   const parsed = parseInt(value, 10);
-  if (Number.isNaN(parsed)) return null;
-  return parsed * 1000;
+  if (!Number.isNaN(parsed)) {
+    return parsed * 1000;
+  }
+
+  const dateMs = Date.parse(value);
+  if (Number.isNaN(dateMs) || dateMs <= responseReceivedMs) {
+    return null;
+  }
+
+  return dateMs - responseReceivedMs;
 }
 
 function takePendingResponse(turnId: string): PendingResponse | undefined {
@@ -172,7 +184,12 @@ export function registerLlmCapture(pi: ExtensionAPI, t: Telemetry): void {
       const { turnId } = t.state.correlation();
       if (!turnId) return;
 
-      const retryAfterMs = parseRetryAfterMs(event.headers);
+      const responseReceivedMs = t.now();
+      const retryAfterValue = event.headers["retry-after"] ?? event.headers["Retry-After"];
+      const retryAfterMs = parseRetryAfterMs(event.headers, responseReceivedMs);
+      if (retryAfterMs === null && retryAfterValue) {
+        t.meta("warn", "handler_error", `unparseable or past Retry-After header: ${retryAfterValue}`);
+      }
 
       // Find the most recent in-flight request for this turn.
       let target: InFlightRequest | undefined;
