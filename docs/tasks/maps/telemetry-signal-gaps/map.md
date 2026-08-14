@@ -55,6 +55,12 @@ measured correctly, and error parsing is extensible.
 - **Retry.** Fix the HTTP-date `Retry-After` parse hole. Research whether a
   Pi retry seam exists; if feasible, add `attempt` / `parent_request_id`
   linkage.
+- **Error raw capture (grilled 2026-08-14).** Dedicated `capture.toolErrorRaw`
+  flag (default OFF), storing the raw error envelope as-is (JSON of
+  `event.content`/`event.result`) in `result_text` for `is_error=1` rows only.
+  Tool errors only (no LLM error bodies). Reuse the SPEC §7 one-time warning —
+  but NOTE: that warning is spec'd but NOT implemented today, so the feature
+  task implements it for the first time (and backfills toolArgs/toolResults).
 
 ## Fog
 

@@ -4,7 +4,7 @@ type: grilling
 slug: grill-error-raw-capture
 title: "Decide the opt-in raw error-capture approach: dedicated flag vs reuse toolResults"
 map: telemetry-signal-gaps
-status: ready
+status: done
 blocked_by: []
 slices: []
 ---
@@ -52,6 +52,41 @@ at a time; never answer on the user's behalf:
 - The data this collects feeds `grill-pluggable-parser` (the pluggable
   parser design benefits from seeing real envelopes).
 
+## Decisions settled (grilling log)
+
+- **[2026-08-14] Capture approach = DEDICATED `capture.toolErrorRaw` flag.**
+  A new `capture.toolErrorRaw` flag (default OFF) stores `result_text` ONLY for
+  `is_error=1` rows. Targeted at the classifier problem; minimal privacy
+  footprint. Existing `toolArgs` / `toolResults` stay separate and off. The raw
+  envelopes are exactly what the pluggable parser (`grill-pluggable-parser`)
+  needs, and errors-only avoids capturing success-result content. Rejected:
+  reuse `toolResults` (broader content exposure — success results like file
+  contents / command output would be stored too).
+- **[2026-08-14] Storage shape = RAW envelope as-is.** Store the raw envelope
+  (JSON string of `event.content` / `event.result`) in `result_text`. Preserves
+  full structure (content blocks, types, nested fields, multi-block
+  envelopes) so the pluggable parser can be designed against the real shape,
+  including non-text blocks. Rejected: extracted/normalized text (loses envelope
+  structure; the parser couldn't be designed against the raw shape).
+- **[2026-08-14] Error scope = TOOL errors only.** `toolErrorRaw` captures
+  `tool_executions.result_text` for `is_error=1` rows only. The classifier gap
+  is tool-only; LLM error bodies live in `llm_requests` (no `result_text`
+  column) and would need a separate schema change, which is out of scope here.
+  Rejected: tool + LLM errors (premature `llm_requests.error_body` column
+  addition, beyond the classifier's scope).
+- **[2026-08-14] Warning behavior = REUSE the one-time privacy warning path.**
+  `toolErrorRaw` reuses the same one-time content-capture warning SPEC §7
+  specifies for `toolArgs`/`toolResults` — no new error-specific warning surface.
+  **Implementation note (discovered during grilling):** SPEC §7 says "enabling
+  shows a one-time warning," but NO warning is implemented in code today
+  (`src/capture/tools.ts` has no warning emission for `toolArgs`/`toolResults`).
+  So the feature task cannot merely reuse an existing warning; it must
+  **implement the one-time warning** for the first time (covering `toolErrorRaw`,
+  and ideally backfilling `toolArgs`/`toolResults` for consistency with SPEC §7).
+  This makes slice 1 of `error-raw-capture` slightly larger than "just a flag":
+  it adds the warning mechanism. Record this as a slice-scope note.
+  Rejected: error-specific warning (adds a second warning surface to maintain).
+
 ## Recommended starting answer
 
 **Dedicated `capture.toolErrorRaw` flag, raw envelope as-is, `is_error=1`
@@ -64,9 +99,9 @@ first option but let the user override on any of the four axes.
 
 - Graduates `error-raw-capture` (feature) into precise slices: config flag +
   migration-free column reuse (the existing `result_text` column is already
-  present, just unpopulated) + capture path + warning + tests.
-- May shrink `error-raw-capture` scope if LLM error bodies are ruled out (or
-  expand it to `llm_requests` if in — that would need a new column).
+  present, just unpopulated) + capture path + **the one-time warning mechanism
+  (new — see decision 4 note: SPEC §7 specified it but no warning is
+  implemented today; backfill toolArgs/toolResults for consistency)** + tests.
 - Feeds `grill-pluggable-parser`: the raw shapes collected here inform the
   parser hook design. The user may want to enable the flag and collect data
-  before running the pluggable-parser grilling (recorded in map Fog).
+  before running the pluggable-parser grilling (map Fog item 1).
