@@ -4,7 +4,7 @@ type: bug
 slug: ttft-first-token-fix
 title: "TTFT mis-measured: message_update of any type is treated as first token"
 map: telemetry-signal-gaps
-status: ready
+status: done
 bug: ttft-first-token-mismeasured
 slices:
   - ttft-gate-text-delta
@@ -65,15 +65,15 @@ request; genuinely-unmeasured requests stay `NULL`.
 
 ## Acceptance criteria
 
-- [ ] `ttft_ms` is no longer `0` for any new request that streams real text.
-- [ ] A request whose only `message_update` is a non-`text_delta` event keeps
+- [x] `ttft_ms` is no longer `0` for any new request that streams real text.
+- [x] A request whose only `message_update` is a non-`text_delta` event keeps
   `ttft_ms = NULL` (no false zero).
-- [ ] New unit test: fire a non-`text_delta` `message_update` at the same ms
+- [x] New unit test: fire a non-`text_delta` `message_update` at the same ms
   as `message_start`, then a `text_delta` later — assert `ttft_ms` reflects
   the `text_delta` delta, not the first update.
-- [ ] Migration nulls historically mis-measured `ttft_ms` rows (see history
+- [x] Migration nulls historically mis-measured `ttft_ms` rows (see history
   slice).
-- [ ] `ttft_by_model` and other canned queries no longer report a `0` median.
+- [x] `ttft_by_model` and other canned queries no longer report a `0` median.
 
 ## Implementation notes
 
@@ -90,3 +90,23 @@ request; genuinely-unmeasured requests stay `NULL`.
   missing `assistantMessageEvent` (older provider) asserts `ttft_ms = NULL`.
   All 222 tests pass; `tsc --noEmit` clean. Forward-only — no schema change,
   no migration; existing rows untouched (history slice handles backfill).
+- **ttft-null-mismeasured-history** (landed): Added migration version 5 to
+  `MIGRATIONS` in `src/db.ts`, gated on `user_version < 5` by the existing
+  migration runner (current is 4). Runs `UPDATE llm_requests SET ttft_ms =
+  NULL WHERE ttft_ms = 0` once on upgrade — the combined predicate covers
+  both the 6,425 synthetic-first-update rows (`ttft_ms=0, stream_ms>0`) and
+  the 455 fully-degenerate rows (`ttft_ms=0, stream_ms IS NULL`), since
+  networked TTFT is never 0 ms. The migration SQL comment records the review
+  evidence (6,425 + 455 rows) for archaeology. An `apply` guard no-ops when
+  the `ttft_ms` column is absent (older test fixtures). Three migration
+  tests added in `test/db.test.ts`: (1) v4 DB with synthetic-zero,
+  degenerate-zero, and positive rows → zeros nulled, positive preserved,
+  `user_version` advances to 5; (2) fresh v0 DB → migration runs, no-op on
+  empty `llm_requests`, v5 set; (3) re-open an already-v5 DB with a future
+  zero row → migration does not re-run (row stays 0). All 225 tests pass;
+  `tsc --noEmit` clean.
+
+**Task complete:** Both slices landed. Forward fix (slice 1) gates new
+  captures on `text_delta`; history migration (slice 2) nulls existing
+  mis-measured `ttft_ms=0` rows. No `ttft_ms=0` remains in the DB after
+  upgrade from <=0.4.0.
