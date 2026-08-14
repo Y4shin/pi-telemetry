@@ -249,6 +249,27 @@ CREATE INDEX IF NOT EXISTS idx_sev_turn ON session_events(turn_id);`,
       db.exec("CREATE INDEX IF NOT EXISTS idx_sev_turn ON session_events(turn_id)");
     },
   },
+  {
+    version: 5,
+    description: "null mis-measured ttft_ms zeros",
+    sql: `-- task: ttft-first-token-fix / slice: ttft-null-mismeasured-history
+-- Review of live DB found 6,425 synthetic-first-update rows (ttft_ms=0, stream_ms>0)
+-- plus 455 fully-degenerate rows (ttft_ms=0, stream_ms IS NULL) — all physically
+-- impossible for a networked provider. Networked TTFT is never 0 ms, so we null
+-- every ttft_ms=0 rather than risk preserving measurement artifacts.
+UPDATE llm_requests SET ttft_ms = NULL WHERE ttft_ms = 0;`,
+    apply(db) {
+      // The real schema always includes ttft_ms, but migration-test fixtures
+      // for older versions sometimes create a minimal llm_requests table.
+      // Guard so the UPDATE is a no-op when the column is absent.
+      const columns = db
+        .prepare("PRAGMA table_info(llm_requests)")
+        .all() as Array<{ name: string }>;
+      if (columns.some((c) => c.name === "ttft_ms")) {
+        db.exec("UPDATE llm_requests SET ttft_ms = NULL WHERE ttft_ms = 0");
+      }
+    },
+  },
 ];
 
 function isBusyError(err: unknown): boolean {

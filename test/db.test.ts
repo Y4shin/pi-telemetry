@@ -150,6 +150,129 @@ describe("db", () => {
     assert.strictEqual(hasFlushLog, 1);
     db.close();
   });
+
+  it("migrates an existing v4 database by nulling mis-measured ttft_ms=0 rows", () => {
+    const v4Db = new DatabaseSync(dbPath);
+    v4Db.exec(`
+      CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE agent_runs (run_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id), started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE turns (turn_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(run_id), session_id TEXT NOT NULL, turn_index INTEGER NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE llm_requests (
+        request_id        TEXT PRIMARY KEY,
+        turn_id           TEXT REFERENCES turns(turn_id),
+        run_id            TEXT,
+        session_id        TEXT NOT NULL,
+        provider          TEXT,
+        model             TEXT,
+        started_unix_ms   INTEGER NOT NULL,
+        ttft_ms           INTEGER,
+        stream_ms         INTEGER,
+        duration_ms       INTEGER,
+        input_tokens      INTEGER,
+        output_tokens     INTEGER,
+        cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER,
+        cost_total_usd    REAL,
+        stop_reason       TEXT,
+        http_status       INTEGER,
+        retry_after_ms    INTEGER
+      );
+      CREATE INDEX idx_llm_session ON llm_requests(session_id);
+      CREATE INDEX idx_llm_model ON llm_requests(model);
+      PRAGMA user_version = 4;
+    `);
+    v4Db.prepare(
+      "INSERT INTO sessions (session_id, started_unix_ms) VALUES (?, ?)",
+    ).run("sess-ttft", 1000);
+    v4Db.prepare(
+      "INSERT INTO agent_runs (run_id, session_id, started_unix_ms) VALUES (?, ?, ?)",
+    ).run("run-ttft", "sess-ttft", 1000);
+    v4Db.prepare(
+      "INSERT INTO turns (turn_id, run_id, session_id, turn_index, started_unix_ms) VALUES (?, ?, ?, ?, ?)",
+    ).run("turn-ttft", "run-ttft", "sess-ttft", 0, 1000);
+    v4Db.prepare(
+      "INSERT INTO llm_requests (request_id, session_id, started_unix_ms, ttft_ms, stream_ms) VALUES (?, ?, ?, ?, ?)",
+    ).run("req-synthetic-zero", "sess-ttft", 1000, 0, 1500);
+    v4Db.prepare(
+      "INSERT INTO llm_requests (request_id, session_id, started_unix_ms, ttft_ms, stream_ms) VALUES (?, ?, ?, ?, ?)",
+    ).run("req-degenerate-zero", "sess-ttft", 1000, 0, null);
+    v4Db.prepare(
+      "INSERT INTO llm_requests (request_id, session_id, started_unix_ms, ttft_ms, stream_ms) VALUES (?, ?, ?, ?, ?)",
+    ).run("req-positive", "sess-ttft", 1000, 42, 1500);
+    v4Db.close();
+
+    openDatabase(dbPath);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const version = db.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    assert.strictEqual(version.user_version, MIGRATIONS.length);
+
+    const rows = db
+      .prepare("SELECT request_id, ttft_ms, stream_ms FROM llm_requests ORDER BY request_id")
+      .all() as Array<{ request_id: string; ttft_ms: number | null; stream_ms: number | null }>;
+
+    const synthetic = rows.find((r) => r.request_id === "req-synthetic-zero");
+    const degenerate = rows.find((r) => r.request_id === "req-degenerate-zero");
+    const positive = rows.find((r) => r.request_id === "req-positive");
+
+    assert.strictEqual(synthetic?.ttft_ms, null, "synthetic zero ttft_ms should be nulled");
+    assert.strictEqual(degenerate?.ttft_ms, null, "degenerate zero ttft_ms should be nulled");
+    assert.strictEqual(positive?.ttft_ms, 42, "positive ttft_ms should be preserved");
+
+    const zeroCount = db
+      .prepare("SELECT COUNT(*) AS c FROM llm_requests WHERE ttft_ms = 0")
+      .get() as { c: number };
+    assert.strictEqual(zeroCount.c, 0, "no ttft_ms=0 rows should remain");
+    db.close();
+  });
+
+  it("migrates a fresh v0 database to v5 and nulling migration is a no-op on empty llm_requests", () => {
+    openDatabase(dbPath);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const version = db.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    assert.strictEqual(version.user_version, MIGRATIONS.length);
+    const zeroCount = db
+      .prepare("SELECT COUNT(*) AS c FROM llm_requests WHERE ttft_ms = 0")
+      .get() as { c: number };
+    assert.strictEqual(zeroCount.c, 0);
+    db.close();
+  });
+
+  it("does not re-run the v5 ttft_ms nulling migration on an already v5 database", () => {
+    openDatabase(dbPath);
+    const db = new DatabaseSync(dbPath);
+    const versionBefore = db.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    assert.strictEqual(versionBefore.user_version, MIGRATIONS.length);
+
+    // Simulate a future row that somehow has ttft_ms=0. The migration must
+    // NOT re-run on an already-migrated DB, so this row stays 0.
+    db.prepare(
+      "INSERT INTO sessions (session_id, started_unix_ms) VALUES (?, ?)",
+    ).run("sess-reopen", 1000);
+    db.prepare(
+      "INSERT INTO agent_runs (run_id, session_id, started_unix_ms) VALUES (?, ?, ?)",
+    ).run("run-reopen", "sess-reopen", 1000);
+    db.prepare(
+      "INSERT INTO turns (turn_id, run_id, session_id, turn_index, started_unix_ms) VALUES (?, ?, ?, ?, ?)",
+    ).run("turn-reopen", "run-reopen", "sess-reopen", 0, 1000);
+    db.prepare(
+      "INSERT INTO llm_requests (request_id, session_id, started_unix_ms, ttft_ms, stream_ms) VALUES (?, ?, ?, ?, ?)",
+    ).run("req-reopen-zero", "sess-reopen", 1000, 0, 1500);
+    db.close();
+
+    openDatabase(dbPath);
+    const db2 = new DatabaseSync(dbPath, { readOnly: true });
+    const row = db2
+      .prepare("SELECT ttft_ms FROM llm_requests WHERE request_id = ?")
+      .get("req-reopen-zero") as { ttft_ms: number | null };
+    assert.strictEqual(row.ttft_ms, 0, "v5 migration must not re-run");
+    db2.close();
+  });
 });
 
 describe("busy backoff delay", () => {
