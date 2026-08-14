@@ -235,6 +235,166 @@ describe("tool execution capture", () => {
     assert.strictEqual(row.result_hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"); // sha256('')
   });
 
+  it("stores raw error envelope in result_text when toolErrorRaw is on and is_error=1", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(
+      makeConfig(dbPath, { capture: { toolArgs: false, toolResults: false, toolErrorRaw: true, bashCommand: false } }),
+      db,
+    );
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const errorEnvelope = { content: [{ type: "text", text: "Command timed out" }] };
+    await stub.fire("tool_execution_start", { toolCallId: "tc-raw-err", toolName: "bash", args: {} });
+    await stub.fire("tool_execution_end", {
+      toolCallId: "tc-raw-err",
+      toolName: "bash",
+      result: errorEnvelope,
+      isError: true,
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-raw-err") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.is_error, 1);
+    assert.strictEqual(row.result_text, JSON.stringify(errorEnvelope));
+  });
+
+  it("keeps result_text NULL for success rows even when toolErrorRaw is on", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(
+      makeConfig(dbPath, { capture: { toolArgs: false, toolResults: false, toolErrorRaw: true, bashCommand: false } }),
+      db,
+    );
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    await stub.fire("tool_execution_start", { toolCallId: "tc-raw-ok", toolName: "read", args: {} });
+    await stub.fire("tool_execution_end", {
+      toolCallId: "tc-raw-ok",
+      toolName: "read",
+      result: { content: [{ type: "text", text: "success body" }] },
+      isError: false,
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-raw-ok") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.is_error, 0);
+    assert.strictEqual(row.result_text, null);
+  });
+
+  it("keeps result_text NULL for error rows when toolErrorRaw is off", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const errorEnvelope = { content: [{ type: "text", text: "Command timed out" }] };
+    await stub.fire("tool_execution_start", { toolCallId: "tc-no-raw", toolName: "bash", args: {} });
+    await stub.fire("tool_execution_end", {
+      toolCallId: "tc-no-raw",
+      toolName: "bash",
+      result: errorEnvelope,
+      isError: true,
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-no-raw") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.is_error, 1);
+    assert.strictEqual(row.result_text, null);
+  });
+
+  it("preserves multi-block and non-text blocks in raw error envelope", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(
+      makeConfig(dbPath, { capture: { toolArgs: false, toolResults: false, toolErrorRaw: true, bashCommand: false } }),
+      db,
+    );
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const errorEnvelope = {
+      content: [
+        { type: "text", text: "First block" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "abc" } },
+        { type: "text", text: "Second block" },
+      ],
+    };
+    await stub.fire("tool_execution_start", { toolCallId: "tc-raw-multi", toolName: "bash", args: {} });
+    await stub.fire("tool_execution_end", {
+      toolCallId: "tc-raw-multi",
+      toolName: "bash",
+      result: errorEnvelope,
+      isError: true,
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-raw-multi") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.is_error, 1);
+    assert.strictEqual(row.result_text, JSON.stringify(errorEnvelope));
+  });
+
+  it("stores raw error envelope without content array as-is", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(
+      makeConfig(dbPath, { capture: { toolArgs: false, toolResults: false, toolErrorRaw: true, bashCommand: false } }),
+      db,
+    );
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const errorEnvelope = { error: "something went wrong", code: "E_CUSTOM" };
+    await stub.fire("tool_execution_start", { toolCallId: "tc-raw-shape", toolName: "bash", args: {} });
+    await stub.fire("tool_execution_end", {
+      toolCallId: "tc-raw-shape",
+      toolName: "bash",
+      result: errorEnvelope,
+      isError: true,
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-raw-shape") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.is_error, 1);
+    assert.strictEqual(row.result_text, JSON.stringify(errorEnvelope));
+  });
+
+  it("stores raw error envelope via tool_result event", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(
+      makeConfig(dbPath, { capture: { toolArgs: false, toolResults: false, toolErrorRaw: true, bashCommand: false } }),
+      db,
+    );
+    await setupSessionRunTurn(stub, t);
+    registerToolCapture(stub.pi, t);
+
+    const errorEnvelope = { content: [{ type: "text", text: "Result event error" }] };
+    await stub.fire("tool_execution_start", { toolCallId: "tc-raw-result", toolName: "bash", args: {} });
+    await stub.fire("tool_result", {
+      toolCallId: "tc-raw-result",
+      toolName: "bash",
+      input: {},
+      content: errorEnvelope,
+      isError: true,
+      details: undefined,
+    });
+    await stub.fire("tool_execution_end", {
+      toolCallId: "tc-raw-result",
+      toolName: "bash",
+      result: "ignored-after-result",
+      isError: false,
+    });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-raw-result") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.is_error, 1);
+    assert.strictEqual(row.result_text, JSON.stringify(errorEnvelope));
+  });
+
   it("non-JSON-serializable args store chars only", async () => {
     const stub = createL1Stub();
     const t = createBuffer(

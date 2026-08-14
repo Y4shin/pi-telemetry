@@ -23,6 +23,7 @@ interface StagedResult {
   resultChars: number;
   resultHash: string;
   resultText: string;
+  rawResultText: string | null;
   isError: boolean;
   errorClass: ErrorClass | null;
 }
@@ -194,6 +195,7 @@ function computeResultMetrics(result: unknown, includeText: boolean): StagedResu
     resultChars: chars,
     resultHash: hasher.digest("hex"),
     resultText: text,
+    rawResultText: safeJsonStringify(result),
     isError: false,
     errorClass: null,
   };
@@ -221,6 +223,18 @@ function insertToolExecution(
 
   const captureArgs = t.config.capture.toolArgs;
   const captureResults = t.config.capture.toolResults;
+  const captureErrorRaw = t.config.capture.toolErrorRaw;
+
+  // Grilling left the raw-error cap policy undecided. We use no cap here:
+  // the flag is opt-in, tool error envelopes are bounded by the protocol,
+  // and capping would truncate JSON and defeat raw-as-is parser design.
+  // If a cap is needed later, reuse feedbackMaxBytes as the sane default.
+  const resultText =
+    captureErrorRaw && staged?.isError
+      ? staged?.rawResultText ?? null
+      : captureResults
+        ? staged?.resultText ?? null
+        : null;
 
   t.enqueue(
     `INSERT OR IGNORE INTO tool_executions (
@@ -242,7 +256,7 @@ function insertToolExecution(
       staged?.resultChars ?? 0,
       staged?.resultHash ?? createHash("sha256").update("").digest("hex"),
       captureArgs ? argsJson : null,
-      captureResults ? staged?.resultText ?? null : null,
+      resultText,
     ],
   );
 }
