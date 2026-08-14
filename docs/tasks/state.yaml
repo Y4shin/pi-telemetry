@@ -1,4 +1,4 @@
-task: retry-linkage
-task_status: done
-slice: link-retry-attempts
+task: error-raw-capture
+task_status: ready
+slice: add-tool-error-raw-flag
 slice_status: done

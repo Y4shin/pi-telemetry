@@ -71,3 +71,26 @@ it.
 - Grilling decision (task `grill-error-raw-capture`) fixes the exact flag
   name, storage shape (raw vs normalized), error scope (tool-only vs +LLM),
   and warning behavior. This task implements the result.
+
+## Implementation notes
+
+- **add-tool-error-raw-flag** (slice 1/2): Added the `capture.toolErrorRaw`
+  boolean to `CaptureConfig` in `src/config.ts` (`DEFAULTS.capture`, env
+  `PI_TELEMETRY_CAPTURE_TOOL_ERROR_RAW`, and settings.json parsing all follow
+  the existing `toolArgs`/`toolResults` pattern; default `false`). Documented
+  in `SPEC.md` §7 config table. Implemented the one-time content-capture
+  privacy warning for the first time — a new `maybeEmitContentCaptureWarning`
+  export in `src/capture/tools.ts` fires once per session (gated by a new
+  `contentCaptureWarningShown` boolean on `RuntimeState` in `src/state.ts`)
+  when ANY content-capture flag (`toolArgs`/`toolResults`/`toolErrorRaw`) is on,
+  backfilling the warning for `toolArgs`/`toolResults` which had no warning
+  before. The warning is invoked from the three tool-capture event handlers
+  (`tool_execution_start`, `tool_result`, `tool_execution_end`); the boolean
+  is set before emitting so a throw in the meta channel cannot cause a retry
+  storm, and the `catch` swallows failures (telemetry never breaks a
+  session). Tests in `test/config.test.ts`: flag default off, env on, settings
+  on, env-overrides-settings-off, invalid-value-fallback, warning fires once,
+  warning not emitted when all flags off. 12 test files updated to add
+  `toolErrorRaw: false` to existing config literals. Full suite 246/246 green,
+  tsc clean. No capture behavior changed — `result_text` stays NULL until
+  slice 2.

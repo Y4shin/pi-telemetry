@@ -4,7 +4,7 @@ slug: add-tool-error-raw-flag
 title: Add the capture.toolErrorRaw config flag (default off) with privacy warning
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: s
 blocked_by: []
 ---
