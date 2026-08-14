@@ -26,7 +26,7 @@ function makeConfig(dbPath: string, overrides: Partial<TelemetryConfig> = {}): T
     bufferFlushMs: 0, // disable auto-flush; we flush manually
     bufferMaxRows: 1_000_000, // never auto-flush by count
     feedbackMaxBytes: 65536,
-    capture: { toolArgs: false, toolResults: false, bashCommand: false },
+    capture: { toolArgs: false, toolResults: false, toolErrorRaw: false, bashCommand: false },
     ...overrides,
   };
 }

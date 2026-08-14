@@ -19,7 +19,7 @@ function makeConfig(dbPath: string, overrides: Partial<TelemetryConfig> = {}): T
     bufferFlushMs: 10000,
     bufferMaxRows: 100,
     feedbackMaxBytes: 65536,
-    capture: { toolArgs: false, toolResults: false, bashCommand: false },
+    capture: { toolArgs: false, toolResults: false, toolErrorRaw: false, bashCommand: false },
     ...overrides,
   };
 }

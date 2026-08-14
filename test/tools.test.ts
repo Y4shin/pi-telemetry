@@ -24,7 +24,7 @@ function makeConfig(dbPath: string, overrides: Partial<TelemetryConfig> = {}): T
     bufferFlushMs: 10000,
     bufferMaxRows: 100,
     feedbackMaxBytes: 65536,
-    capture: { toolArgs: false, toolResults: false, bashCommand: false },
+    capture: { toolArgs: false, toolResults: false, toolErrorRaw: false, bashCommand: false },
     ...overrides,
   };
 }
@@ -158,7 +158,7 @@ describe("tool execution capture", () => {
   it("populates args_json and result_text when capture flags are enabled", async () => {
     const stub = createL1Stub();
     const t = createBuffer(
-      makeConfig(dbPath, { capture: { toolArgs: true, toolResults: true, bashCommand: false } }),
+      makeConfig(dbPath, { capture: { toolArgs: true, toolResults: true, toolErrorRaw: false, bashCommand: false } }),
       db,
     );
     await setupSessionRunTurn(stub, t);
@@ -238,7 +238,7 @@ describe("tool execution capture", () => {
   it("non-JSON-serializable args store chars only", async () => {
     const stub = createL1Stub();
     const t = createBuffer(
-      makeConfig(dbPath, { capture: { toolArgs: true, toolResults: false, bashCommand: false } }),
+      makeConfig(dbPath, { capture: { toolArgs: true, toolResults: false, toolErrorRaw: false, bashCommand: false } }),
       db,
     );
     await setupSessionRunTurn(stub, t);

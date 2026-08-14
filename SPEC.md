@@ -503,6 +503,7 @@ under `pi-telemetry`, env-var overrides:
 | `bufferMaxRows` | 50 | |
 | `feedbackMaxBytes` | 65536 | |
 | `capture.toolArgs` / `capture.toolResults` | false | redaction pass planned before enabling |
+| `capture.toolErrorRaw` | false | when enabled, stores the raw tool-error envelope in `result_text` for `is_error=1` rows; emits the same one-time privacy warning as the other content flags |
 | `capture.bashCommand` | false | **Deprecated (task: deprecate-bash-executions).** Reserved / dead flag kept for backward compatibility; the `bash_executions` capture path has been removed. |
 
 Privacy defaults: no prompts, no tool content, no command text, no file paths

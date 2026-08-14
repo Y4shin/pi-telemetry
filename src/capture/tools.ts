@@ -31,6 +31,27 @@ const inFlightTools = new Map<string, InFlightTool>();
 const stagedResults = new Map<string, StagedResult>();
 const completedToolCallIds = new Set<string>();
 
+const CONTENT_CAPTURE_WARNING =
+  "Privacy warning: content capture is enabled (toolArgs/toolResults/toolErrorRaw). " +
+  "Tool arguments, results, and/or raw error envelopes will be stored in the local telemetry database.";
+
+export function maybeEmitContentCaptureWarning(t: Telemetry): void {
+  if (t.state.contentCaptureWarningShown) return;
+  const capture = t.config.capture;
+  if (!capture.toolArgs && !capture.toolResults && !capture.toolErrorRaw) return;
+
+  // Mark shown before emitting so a synchronous throw in t.meta cannot cause
+  // a retry storm, and so repeated calls are always no-ops.
+  t.state.contentCaptureWarningShown = true;
+
+  try {
+    t.meta("warn", "content_capture_warning", CONTENT_CAPTURE_WARNING);
+  } catch {
+    // Warning path must never break telemetry. The boolean is already set,
+    // so the warning is consumed even if the meta channel failed.
+  }
+}
+
 function safeJsonStringify(value: unknown): string | null {
   try {
     return JSON.stringify(value);
@@ -229,6 +250,8 @@ function insertToolExecution(
 export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
   pi.on("tool_execution_start", async (event) => {
     guard(t, () => {
+      maybeEmitContentCaptureWarning(t);
+
       const { sessionId, runId, turnId } = t.state.correlation();
       if (!sessionId || !turnId) return;
 
@@ -254,6 +277,8 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
 
   pi.on("tool_result", async (event) => {
     guard(t, () => {
+      maybeEmitContentCaptureWarning(t);
+
       const { sessionId, turnId } = t.state.correlation();
       if (!sessionId || !turnId) return;
 
@@ -280,6 +305,8 @@ export function registerToolCapture(pi: ExtensionAPI, t: Telemetry): void {
 
   pi.on("tool_execution_end", async (event) => {
     guard(t, () => {
+      maybeEmitContentCaptureWarning(t);
+
       if (completedToolCallIds.has(event.toolCallId)) {
         inFlightTools.delete(event.toolCallId);
         stagedResults.delete(event.toolCallId);
