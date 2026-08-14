@@ -15,6 +15,7 @@ import {
   registerTurnCapture,
   registerToolCapture,
 } from "../src/capture/index.ts";
+import { classifyError } from "../src/capture/tools.ts";
 
 function makeConfig(dbPath: string, overrides: Partial<TelemetryConfig> = {}): TelemetryConfig {
   return {
@@ -254,5 +255,80 @@ describe("tool execution capture", () => {
     assert.ok(row);
     assert.strictEqual(typeof row.args_chars, "number");
     assert.strictEqual(row.args_json, null);
+  });
+});
+
+describe("classifyError", () => {
+  it("classifies content-block envelopes by concatenated text", () => {
+    assert.strictEqual(
+      classifyError({ content: [{ type: "text", text: "Command timed out" }] }),
+      "timeout",
+    );
+    assert.strictEqual(
+      classifyError({ content: [{ type: "text", text: "ENOENT: no such file" }] }),
+      "not_found",
+    );
+    assert.strictEqual(
+      classifyError({ content: [{ type: "text", text: "EACCES: permission denied" }] }),
+      "permission",
+    );
+    assert.strictEqual(
+      classifyError({ content: [{ type: "text", text: "invalid argument" }] }),
+      "validation",
+    );
+  });
+
+  it("concatenates text from multiple content blocks", () => {
+    assert.strictEqual(
+      classifyError({
+        content: [
+          { type: "text", text: "Request" },
+          { type: "text", text: " timed out" },
+        ],
+      }),
+      "timeout",
+    );
+  });
+
+  it("prefers content over message when both are present", () => {
+    assert.strictEqual(
+      classifyError({
+        message: "something else",
+        content: [{ type: "text", text: "Command timed out" }],
+      }),
+      "timeout",
+    );
+  });
+
+  it("falls back to message when content has no text", () => {
+    assert.strictEqual(
+      classifyError({
+        message: "file not found",
+        content: [{ type: "image" }],
+      }),
+      "not_found",
+    );
+  });
+
+  it("still handles bare strings", () => {
+    assert.strictEqual(classifyError("Command timed out"), "timeout");
+    assert.strictEqual(classifyError("not found"), "not_found");
+    assert.strictEqual(classifyError("permission denied"), "permission");
+    assert.strictEqual(classifyError("invalid input"), "validation");
+    assert.strictEqual(classifyError("something else"), "unknown");
+  });
+
+  it("still handles Error-like objects with message/code", () => {
+    assert.strictEqual(classifyError({ message: "request timed out" }), "timeout");
+    assert.strictEqual(classifyError({ message: "x", code: "ENOENT" }), "not_found");
+    assert.strictEqual(classifyError({ message: "x", code: "EACCES" }), "permission");
+    assert.strictEqual(classifyError({ message: "validation failed" }), "validation");
+  });
+
+  it("returns unknown for unrecognized envelopes without throwing", () => {
+    assert.strictEqual(classifyError({ error: "x" }), "unknown");
+    assert.strictEqual(classifyError({ content: [] }), "unknown");
+    assert.strictEqual(classifyError(null), "unknown");
+    assert.strictEqual(classifyError(undefined), "unknown");
   });
 });

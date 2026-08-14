@@ -54,21 +54,47 @@ function isTextBlock(block: unknown): block is { text: string } {
   );
 }
 
-function classifyError(err: unknown): ErrorClass {
-  let message = "";
-  let code: string | undefined;
-
-  if (err instanceof Error) {
-    message = err.message;
-    code = (err as { code?: string }).code;
-  } else if (typeof err === "string") {
-    message = err;
-  } else if (err !== null && typeof err === "object") {
-    const obj = err as Record<string, unknown>;
-    message = typeof obj.message === "string" ? obj.message : "";
-    code = typeof obj.code === "string" ? obj.code : undefined;
+function extractContentText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  let text = "";
+  for (const block of content) {
+    if (isTextBlock(block)) {
+      text += block.text;
+    }
   }
+  return text;
+}
 
+function extractErrorText(err: unknown): { message: string; code?: string } {
+  if (err instanceof Error) {
+    return { message: err.message, code: (err as { code?: string }).code };
+  }
+  if (typeof err === "string") {
+    return { message: err };
+  }
+  if (err !== null && typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    if (Array.isArray(obj.content)) {
+      const text = extractContentText(obj.content);
+      if (text.length > 0) {
+        return { message: text };
+      }
+      // fall back to message/code if content has no text
+      return {
+        message: typeof obj.message === "string" ? obj.message : "",
+        code: typeof obj.code === "string" ? obj.code : undefined,
+      };
+    }
+    return {
+      message: typeof obj.message === "string" ? obj.message : "",
+      code: typeof obj.code === "string" ? obj.code : undefined,
+    };
+  }
+  return { message: "" };
+}
+
+export function classifyError(err: unknown): ErrorClass {
+  const { message, code } = extractErrorText(err);
   const combined = `${message} ${code ?? ""}`.toLowerCase();
   if (combined.includes("timeout") || combined.includes("timed out") || code === "ETIMEDOUT") {
     return "timeout";
