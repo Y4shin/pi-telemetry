@@ -4,7 +4,7 @@ slug: ttft-gate-text-delta
 title: Gate TTFT first-token detection on text_delta events
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: s
 blocked_by: []
 ---
