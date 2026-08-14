@@ -45,6 +45,7 @@ describe("canned queries", () => {
       "agent_tree",
       "skill_cost",
       "skill_versions",
+      "retry_count",
     ];
     for (const name of required) {
       assert.ok(CANNED[name], `missing canned query ${name}`);
@@ -221,6 +222,33 @@ describe("canned queries", () => {
 
     const table = await runCanned(dbPath, "skill_cost");
     assert.strictEqual(table.rows.length, 0);
+  });
+
+  it("retry_count counts inferred retries per model", async () => {
+    db.prepare(
+      "INSERT INTO llm_requests (request_id, turn_id, run_id, session_id, provider, model, started_unix_ms, stop_reason, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("req-retry-fail", "turn-1", "run-root-1", "sess-root", "anthropic", "claude-sonnet", now - 2 * dayMs + 90, "error", 1);
+    db.prepare(
+      "INSERT INTO llm_requests (request_id, turn_id, run_id, session_id, provider, model, started_unix_ms, stop_reason, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("req-retry-ok", "turn-1", "run-root-1", "sess-root", "anthropic", "claude-sonnet", now - 2 * dayMs + 95, "stop", 2);
+
+    // Tool-use continuation in a separate turn should NOT count as a retry
+    // even though attempt > 1, because the prior stop_reason is 'toolUse'.
+    db.prepare(
+      "INSERT INTO llm_requests (request_id, turn_id, run_id, session_id, provider, model, started_unix_ms, stop_reason, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("req-tool-first", "turn-2", "run-root-1", "sess-root", "anthropic", "claude-haiku", now - 2 * dayMs + 100, "toolUse", 1);
+    db.prepare(
+      "INSERT INTO llm_requests (request_id, turn_id, run_id, session_id, provider, model, started_unix_ms, stop_reason, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("req-tool-cont", "turn-2", "run-root-1", "sess-root", "anthropic", "claude-haiku", now - 2 * dayMs + 105, "stop", 2);
+
+    const table = await runCanned(dbPath, "retry_count");
+    assert.ok(table.columns.includes("model"));
+    assert.ok(table.columns.includes("retries"));
+    const sonnet = table.rows.find((r) => (r as (string | number | null)[])[0] === "claude-sonnet") as (string | number | null)[];
+    assert.ok(sonnet);
+    assert.strictEqual(sonnet[1], 1);
+    const haiku = table.rows.find((r) => (r as (string | number | null)[])[0] === "claude-haiku") as (string | number | null)[];
+    assert.strictEqual(haiku, undefined, "tool-use continuations must not be counted as retries");
   });
 
   it("rejects unknown canned names", async () => {

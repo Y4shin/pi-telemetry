@@ -74,6 +74,8 @@ export function registerLlmCapture(pi: ExtensionAPI, t: Telemetry): void {
       const signature = getMessageSignature(message);
       const pending = turnId ? takePendingResponse(turnId) : undefined;
 
+      t.state.attempt += 1;
+
       const inFlight: InFlightRequest = {
         requestId,
         startMs,
@@ -88,8 +90,8 @@ export function registerLlmCapture(pi: ExtensionAPI, t: Telemetry): void {
           request_id, turn_id, run_id, session_id, provider, model,
           started_unix_ms, ttft_ms, stream_ms, duration_ms,
           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-          cost_total_usd, stop_reason, http_status, retry_after_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          cost_total_usd, stop_reason, http_status, retry_after_ms, attempt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           requestId,
           turnId,
@@ -109,6 +111,7 @@ export function registerLlmCapture(pi: ExtensionAPI, t: Telemetry): void {
           null,
           pending?.status ?? null,
           pending?.retryAfterMs ?? null,
+          t.state.attempt,
         ],
       );
     });

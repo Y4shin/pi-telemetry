@@ -270,6 +270,14 @@ UPDATE llm_requests SET ttft_ms = NULL WHERE ttft_ms = 0;`,
       }
     },
   },
+  {
+    version: 6,
+    description: "add attempt counter to llm_requests",
+    sql: `ALTER TABLE llm_requests ADD COLUMN attempt INTEGER;`,
+    apply(db) {
+      addColumnIfMissing(db, "llm_requests", "attempt", "INTEGER");
+    },
+  },
 ];
 
 function isBusyError(err: unknown): boolean {

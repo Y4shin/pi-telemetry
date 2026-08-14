@@ -77,7 +77,22 @@ request_id, turn_id, provider, model, full usage + cost breakdown, stop_reason,
 **ttft_ms** (message_start → first message_update), **stream_duration_ms**
 (first update → message_end), duration_ms (decided: include streaming metrics —
 primary motivation for the extension), http_status, retry_after_ms
-(`after_provider_response`; 429 visibility).
+(`after_provider_response`; 429 visibility), **attempt** (1-based position of
+this request within its turn; reset to 0 on `turn_start` and incremented on
+every `message_start`).
+
+**Retry inference note:** `attempt` is inferred from the in-turn
+`message_start` sequence, not from an upstream Pi retry event. Pi's
+`auto_retry_start`/`auto_retry_end` events are internal-only as of pi 0.80.10
+and are not exposed to extensions. Retries are therefore classified at query
+time: a row is a retry when `attempt > 1` AND the immediately preceding
+`llm_requests` row in the same `turn_id` (ordered by `started_unix_ms`) has
+`stop_reason = 'error'`. Tool-use continuations (`stop_reason = 'toolUse'`) are
+excluded from the retry predicate, because they also produce multiple
+`llm_requests` rows within one turn but are not failures. A retry that occurs
+after a tool-use continuation inside the same turn may be miscounted as a
+continuation rather than a fresh retry group; this is the documented
+limitation of the in-turn heuristic.
 
 ### 1.5 Tool executions
 
@@ -223,7 +238,8 @@ CREATE TABLE IF NOT EXISTS llm_requests (
   cost_total_usd    REAL,
   stop_reason       TEXT,
   http_status       INTEGER,
-  retry_after_ms    INTEGER
+  retry_after_ms    INTEGER,
+  attempt           INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_llm_session ON llm_requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_llm_model   ON llm_requests(model);

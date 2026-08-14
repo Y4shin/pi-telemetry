@@ -21,6 +21,7 @@ export function registerTurnCapture(pi: ExtensionAPI, t: Telemetry): void {
       const now = event.timestamp ?? t.now();
       t.state.turnId = turnId;
       t.state.turnIndex = event.turnIndex;
+      t.state.attempt = 0;
       t.state.timers.set(`${TURN_START_PREFIX}${turnId}`, now);
 
       let contextTokens: number | null = null;

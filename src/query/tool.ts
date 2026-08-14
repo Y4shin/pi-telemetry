@@ -15,6 +15,7 @@ const PRESET_NAMES = [
   "agent_tree",
   "skill_cost",
   "skill_versions",
+  "retry_count",
 ] as const;
 
 type PresetName = typeof PRESET_NAMES[number];
@@ -82,7 +83,7 @@ export function registerTelemetryTool(pi: ExtensionAPI, t: Telemetry): void {
       query: Type.Optional(
         StringEnum(PRESET_NAMES, {
           description:
-            "Named preset. Valid: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost, skill_versions",
+            "Named preset. Valid: session_cost, daily_cost, tool_failures, feedback, ttft_by_model, context_growth, agent_tree, skill_cost, skill_versions, retry_count",
         }),
       ),
       sql: Type.Optional(
