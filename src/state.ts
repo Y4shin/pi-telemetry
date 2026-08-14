@@ -5,7 +5,8 @@ export type MetaEvent =
   | "busy_retry"
   | "feedback_rejected"
   | "handler_error"
-  | "buffer_drop";
+  | "buffer_drop"
+  | "content_capture_warning";
 
 export interface LineageState {
   parentSessionId: string | null;
@@ -25,6 +26,9 @@ export interface RuntimeState {
   stagedPromptChars: number | null;
   stagedSystemPromptChars: number | null;
   lastSkillInvokeEventId: string | null;
+  // Set when the one-time content-capture privacy warning has been emitted in
+  // this session, so it never fires more than once.
+  contentCaptureWarningShown: boolean;
   correlation(): {
     sessionId: string | null;
     runId: string | null;
@@ -60,6 +64,7 @@ export function createRuntimeState(): RuntimeState {
     stagedPromptChars: null,
     stagedSystemPromptChars: null,
     lastSkillInvokeEventId: null,
+    contentCaptureWarningShown: false,
     correlation() {
       return {
         sessionId: state.sessionId,

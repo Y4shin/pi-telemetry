@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 export interface CaptureConfig {
   toolArgs: boolean;
   toolResults: boolean;
+  toolErrorRaw: boolean;
   // DEPRECATED (task: deprecate-bash-executions): bashCommand is a reserved /
   // dead flag kept for backward compatibility. It is deprecated alongside the
   // bash_executions table and will be removed in a later cleanup.
@@ -29,6 +30,7 @@ const DEFAULTS: TelemetryConfig = {
   capture: {
     toolArgs: false,
     toolResults: false,
+    toolErrorRaw: false,
     // DEPRECATED (task: deprecate-bash-executions): default kept for backward
     // compatibility; the bash_executions capture path is removed.
     bashCommand: false,
@@ -141,6 +143,10 @@ export function loadConfig(
         boolEnv("PI_TELEMETRY_CAPTURE_TOOL_RESULTS") ??
         parseBool(fromBlock.capture?.toolResults) ??
         DEFAULTS.capture.toolResults,
+      toolErrorRaw:
+        boolEnv("PI_TELEMETRY_CAPTURE_TOOL_ERROR_RAW") ??
+        parseBool(fromBlock.capture?.toolErrorRaw) ??
+        DEFAULTS.capture.toolErrorRaw,
       // DEPRECATED (task: deprecate-bash-executions): parsing is kept so older
       // configs still load, but the flag has no effect on live capture.
       bashCommand:

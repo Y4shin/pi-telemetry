@@ -24,7 +24,7 @@ describe("buffer", () => {
       bufferFlushMs: 10000,
       bufferMaxRows: 50,
       feedbackMaxBytes: 65536,
-      capture: { toolArgs: false, toolResults: false, bashCommand: false },
+      capture: { toolArgs: false, toolResults: false, toolErrorRaw: false, bashCommand: false },
     };
   });
 
@@ -101,7 +101,7 @@ describe("flush_log", () => {
       bufferFlushMs: 10000,
       bufferMaxRows: 50,
       feedbackMaxBytes: 65536,
-      capture: { toolArgs: false, toolResults: false, bashCommand: false },
+      capture: { toolArgs: false, toolResults: false, toolErrorRaw: false, bashCommand: false },
     };
   });
 

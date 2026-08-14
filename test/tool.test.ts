@@ -22,7 +22,7 @@ function makeTelemetry(dbPath: string, sessionId: string | null = null): Telemet
       bufferFlushMs: 2000,
       bufferMaxRows: 50,
       feedbackMaxBytes: 65536,
-      capture: { toolArgs: false, toolResults: false, bashCommand: false },
+      capture: { toolArgs: false, toolResults: false, toolErrorRaw: false, bashCommand: false },
     },
     now: () => Date.now(),
     state,

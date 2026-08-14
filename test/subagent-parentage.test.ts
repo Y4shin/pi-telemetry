@@ -26,7 +26,7 @@ function makeConfig(dbPath: string): TelemetryConfig {
     bufferFlushMs: 0,
     bufferMaxRows: 1_000_000,
     feedbackMaxBytes: 65536,
-    capture: { toolArgs: false, toolResults: false, bashCommand: false },
+    capture: { toolArgs: false, toolResults: false, toolErrorRaw: false, bashCommand: false },
   };
 }
 
