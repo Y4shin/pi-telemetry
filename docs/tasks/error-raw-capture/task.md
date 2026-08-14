@@ -4,7 +4,7 @@ type: feature
 slug: error-raw-capture
 title: "Opt-in capture of raw tool-error envelopes for classifier evaluation"
 map: telemetry-signal-gaps
-status: ready
+status: done
 blocked_by:
   - grill-error-raw-capture
 slices:
@@ -41,18 +41,18 @@ it.
 
 ## Acceptance criteria
 
-- [ ] The chosen capture flag (grilling decision) is parsed in `config.ts`
+- [x] The chosen capture flag (grilling decision) is parsed in `config.ts`
       with default `false`, env-var + settings.json overrides consistent
       with the existing flags.
-- [ ] When enabled, `tool_result`/`tool_execution_end` stores `result_text`
+- [x] When enabled, `tool_result`/`tool_execution_end` stores `result_text`
       for `is_error=1` rows (per grilling: raw-as-is vs normalized).
-- [ ] When disabled, `result_text` stays `NULL` (no behavior change for
+- [x] When disabled, `result_text` stays `NULL` (no behavior change for
       existing users).
-- [ ] Enabling the flag emits the one-time privacy warning (reuse the
+- [x] Enabling the flag emits the one-time privacy warning (reuse the
       existing path; SPEC §7).
-- [ ] Privacy test: default-config run asserts zero non-null `result_text`,
+- [x] Privacy test: default-config run asserts zero non-null `result_text`,
       including error rows.
-- [ ] `SPEC.md` §7 config table documents the new flag.
+- [x] `SPEC.md` §7 config table documents the new flag.
 
 ## Existing abstractions to use
 
@@ -94,3 +94,26 @@ it.
   `toolErrorRaw: false` to existing config literals. Full suite 246/246 green,
   tsc clean. No capture behavior changed — `result_text` stays NULL until
   slice 2.
+
+- **capture-error-envelopes** (slice 2/2): Implemented the raw error-envelope
+  capture path. Extended `StagedResult` in `src/capture/tools.ts` with a new
+  `rawResultText: string | null` field populated at stage time via
+  `safeJsonStringify(result)` (the raw envelope, as-is). `insertToolExecution`
+  now writes `result_text` using the precedence chain: `capture.toolErrorRaw &&
+  staged.isError` → `staged.rawResultText`; else `capture.toolResults` →
+  `staged.resultText`; else `NULL`. Both event paths (`tool_result` and
+  `tool_execution_end`) route through the same `stageResult`/`insertToolExecution`
+  so coverage is uniform. Success rows stay `NULL` even with the flag on
+  (errors-only flag); flag off → `NULL` for all rows (privacy test unchanged).
+  Added 6 unit tests in `test/tools.test.ts`: flag-on+`is_error=1` (raw
+  envelope JSON), flag-on+`is_error=0` (NULL), flag-off+`is_error=1` (NULL),
+  multi-block + non-text-block preservation, envelope without a `content`
+  array stored as-is, and `tool_result` event path. Full suite 252/252 green,
+  tsc clean.
+  **Cap policy decision:** grilling left the raw-error cap undecided; this
+  slice implements **no cap** (documented in an inline comment in
+  `insertToolExecution`). Rationale: tool error envelopes are protocol-bounded,
+  the flag is opt-in, and truncating JSON would corrupt the raw-as-is shape
+  the pluggable parser needs. If a cap is ever required, `feedbackMaxBytes` is
+  the sane default to reuse. No schema change, no migration, no LLM
+  error-body capture (tool-only scope).

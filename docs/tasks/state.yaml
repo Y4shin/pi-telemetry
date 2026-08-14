@@ -1,4 +1,4 @@
 task: error-raw-capture
-task_status: ready
-slice: add-tool-error-raw-flag
+task_status: done
+slice: capture-error-envelopes
 slice_status: done
