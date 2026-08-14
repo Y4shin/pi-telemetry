@@ -273,6 +273,73 @@ describe("db", () => {
     assert.strictEqual(row.ttft_ms, 0, "v5 migration must not re-run");
     db2.close();
   });
+
+  it("migrates an existing v5 database to v6 by adding nullable attempt column", () => {
+    const v5Db = new DatabaseSync(dbPath);
+    v5Db.exec(`
+      CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE agent_runs (run_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id), started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE turns (turn_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(run_id), session_id TEXT NOT NULL, turn_index INTEGER NOT NULL, started_unix_ms INTEGER NOT NULL);
+      CREATE TABLE llm_requests (
+        request_id        TEXT PRIMARY KEY,
+        turn_id           TEXT REFERENCES turns(turn_id),
+        run_id            TEXT,
+        session_id        TEXT NOT NULL,
+        provider          TEXT,
+        model             TEXT,
+        started_unix_ms   INTEGER NOT NULL,
+        ttft_ms           INTEGER,
+        stream_ms         INTEGER,
+        duration_ms       INTEGER,
+        input_tokens      INTEGER,
+        output_tokens     INTEGER,
+        cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER,
+        cost_total_usd    REAL,
+        stop_reason       TEXT,
+        http_status       INTEGER,
+        retry_after_ms    INTEGER
+      );
+      CREATE INDEX idx_llm_session ON llm_requests(session_id);
+      CREATE INDEX idx_llm_model ON llm_requests(model);
+      PRAGMA user_version = 5;
+    `);
+    v5Db.prepare(
+      "INSERT INTO sessions (session_id, started_unix_ms) VALUES (?, ?)",
+    ).run("sess-v5", 1000);
+    v5Db.prepare(
+      "INSERT INTO agent_runs (run_id, session_id, started_unix_ms) VALUES (?, ?, ?)",
+    ).run("run-v5", "sess-v5", 1000);
+    v5Db.prepare(
+      "INSERT INTO turns (turn_id, run_id, session_id, turn_index, started_unix_ms) VALUES (?, ?, ?, ?, ?)",
+    ).run("turn-v5", "run-v5", "sess-v5", 0, 1000);
+    v5Db.prepare(
+      "INSERT INTO llm_requests (request_id, turn_id, session_id, started_unix_ms, stop_reason, http_status) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("req-v5", "turn-v5", "sess-v5", 1000, "error", 429);
+    v5Db.close();
+
+    openDatabase(dbPath);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const version = db.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    assert.strictEqual(version.user_version, MIGRATIONS.length);
+
+    const columns = db
+      .prepare("PRAGMA table_info(llm_requests)")
+      .all() as Array<{ name: string; notnull: number; dflt_value: unknown }>;
+    const attemptCol = columns.find((c) => c.name === "attempt");
+    assert.ok(attemptCol, "attempt column must exist after v6 migration");
+    assert.strictEqual(attemptCol.notnull, 0, "attempt must be nullable");
+
+    const row = db
+      .prepare("SELECT attempt, stop_reason, http_status FROM llm_requests WHERE request_id = ?")
+      .get("req-v5") as { attempt: number | null; stop_reason: string; http_status: number };
+    assert.strictEqual(row.attempt, null, "legacy rows must remain attempt = NULL");
+    assert.strictEqual(row.stop_reason, "error");
+    assert.strictEqual(row.http_status, 429);
+    db.close();
+  });
 });
 
 describe("busy backoff delay", () => {

@@ -458,4 +458,45 @@ describe("llm request capture", () => {
     assert.strictEqual(row.stream_ms, null);
     assert.strictEqual(row.duration_ms, 150);
   });
+
+  it("increments attempt counter per message_start within a turn", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const failedMsg = fakeAssistantMessage({
+      timestamp: 2000,
+      stopReason: "error",
+      usage: undefined,
+    });
+    await stub.fire("message_start", { message: failedMsg });
+    clock += 50;
+    await stub.fire("message_end", { message: failedMsg });
+
+    const retryMsg = fakeAssistantMessage({
+      timestamp: 3000,
+      stopReason: "stop",
+    });
+    await stub.fire("message_start", { message: retryMsg });
+    clock += 100;
+    await stub.fire("message_end", { message: retryMsg });
+    t.flush();
+
+    const rows = db.prepare("SELECT * FROM llm_requests WHERE session_id = ? ORDER BY started_unix_ms").all("sess-llm") as Array<Record<string, unknown>>;
+    assert.strictEqual(rows.length, 2);
+
+    const first = rows[0];
+    const second = rows[1];
+
+    assert.strictEqual(first.turn_id, second.turn_id, "retry must share the same turn_id");
+    assert.strictEqual(first.attempt, 1, "first request in a turn is attempt 1");
+    assert.strictEqual(first.stop_reason, "error", "first request must record the failed stop_reason");
+
+    assert.strictEqual(second.attempt, 2, "retry in the same turn is attempt 2");
+    assert.strictEqual(second.stop_reason, "stop", "retry must record the successful stop_reason");
+  });
 });

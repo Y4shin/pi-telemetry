@@ -19,6 +19,7 @@ export interface RuntimeState {
   runId: string | null;
   turnId: string | null;
   turnIndex: number;
+  attempt: number;
   timers: Map<string, number>;
   lineage: LineageState;
   stagedPromptChars: number | null;
@@ -48,6 +49,7 @@ export function createRuntimeState(): RuntimeState {
     runId: null,
     turnId: null,
     turnIndex: 0,
+    attempt: 0,
     timers: new Map(),
     lineage: {
       parentSessionId: null,

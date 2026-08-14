@@ -236,6 +236,33 @@ LIMIT 500
 `.trim(),
   },
 
+  retry_count: {
+    description: "Inferred retry counts per model. Retries are rows where attempt > 1 and the prior request in the same turn stopped with an error.",
+    sql: `
+WITH ordered AS (
+  SELECT
+    request_id,
+    turn_id,
+    model,
+    attempt,
+    stop_reason,
+    started_unix_ms,
+    LAG(stop_reason) OVER (PARTITION BY turn_id ORDER BY started_unix_ms) AS prior_stop_reason
+  FROM llm_requests
+)
+SELECT
+  model,
+  COUNT(*) AS retries
+FROM ordered
+WHERE attempt > 1 AND prior_stop_reason = 'error'
+  -- {{since:started_unix_ms}}
+  -- {{model:model}}
+GROUP BY model
+ORDER BY retries DESC
+LIMIT 500
+`.trim(),
+  },
+
   ttft_by_model: {
     description: "Time-to-first-token percentiles by model",
     sql: `
