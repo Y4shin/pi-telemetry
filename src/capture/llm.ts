@@ -112,7 +112,7 @@ export function registerLlmCapture(pi: ExtensionAPI, t: Telemetry): void {
       if (!req) return;
 
       const now = t.now();
-      if (req.firstUpdateMs === null) {
+      if (req.firstUpdateMs === null && event.assistantMessageEvent?.type === "text_delta") {
         req.firstUpdateMs = now;
         const ttftMs = now - req.startMs;
         t.enqueue(

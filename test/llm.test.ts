@@ -275,4 +275,81 @@ describe("llm request capture", () => {
     assert.strictEqual(row.turn_id, t.state.turnId);
     assert.strictEqual(row.run_id, t.state.runId);
   });
+
+  it("records ttft_ms from the first text_delta, ignoring earlier non-text_delta updates", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    // Synthetic non-content update in the same millisecond as message_start.
+    await stub.fire("message_update", { message: msg, assistantMessageEvent: { type: "thinking_start", contentIndex: 0, partial: msg } });
+    clock += 200;
+    await stub.fire("message_update", { message: msg, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "h", partial: msg } });
+    clock += 100;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.ttft_ms, 200, "ttft_ms must reflect the text_delta delta, not the synthetic first update");
+    assert.strictEqual(row.stream_ms, 100);
+    assert.strictEqual(row.duration_ms, 300);
+  });
+
+  it("leaves ttft_ms NULL when no text_delta arrives before message_end", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    clock += 50;
+    await stub.fire("message_update", { message: msg, assistantMessageEvent: { type: "thinking_start", contentIndex: 0, partial: msg } });
+    clock += 100;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.ttft_ms, null);
+    assert.strictEqual(row.stream_ms, null);
+    assert.strictEqual(row.duration_ms, 150);
+  });
+
+  it("leaves ttft_ms NULL when assistantMessageEvent is missing", async () => {
+    const stub = createL1Stub();
+    let clock = 1000;
+    const t = createBuffer(makeConfig(dbPath), db, () => clock);
+    await setupSessionRunTurn(stub, t);
+
+    const { registerLlmCapture } = await import("../src/capture/llm.ts");
+    registerLlmCapture(stub.pi, t);
+
+    const msg = fakeAssistantMessage({ timestamp: 2000 });
+    await stub.fire("message_start", { message: msg });
+    clock += 50;
+    // Older providers may omit assistantMessageEvent; per the installed type
+    // set only "text_delta" is a content-bearing update, so missing events
+    // must not be treated as the first token.
+    await stub.fire("message_update", { message: msg });
+    clock += 100;
+    await stub.fire("message_end", { message: msg });
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM llm_requests WHERE session_id = ?").get("sess-llm") as Record<string, unknown>;
+    assert.ok(row);
+    assert.strictEqual(row.ttft_ms, null);
+    assert.strictEqual(row.stream_ms, null);
+    assert.strictEqual(row.duration_ms, 150);
+  });
 });
