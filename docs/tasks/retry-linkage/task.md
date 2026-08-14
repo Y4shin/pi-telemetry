@@ -4,7 +4,7 @@ type: feature
 slug: retry-linkage
 title: "Link LLM request attempts so retries are countable"
 map: telemetry-signal-gaps
-status: ready
+status: done
 blocked_by:
   - retry-seam-research
 slices:
@@ -67,3 +67,27 @@ counter or parent link.
   note) and the feature is descoped to Fog, not forced.
 - The recommended schema shape comes from the research; do not choose a
   column shape here.
+
+## Implementation notes
+
+- **link-retry-attempts** (the only slice): Added a turn-scoped `attempt`
+  counter to `llm_requests` via migration v6 (`addColumnIfMissing`, nullable,
+  no backfill — legacy rows stay NULL). The counter lives in `RuntimeState`
+  (`attempt: number`, init 0), reset to 0 on `turn_start` in
+  `src/capture/turns.ts` and incremented before the INSERT on `message_start`
+  in `src/capture/llm.ts` (first request = 1). Capture records the neutral
+  fact (position in turn); retry classification is query-time only, in the new
+  `retry_count` preset (`src/query/canned.ts`, registered in
+  `src/query/tool.ts`) which classifies `attempt > 1 AND prior_stop_reason =
+  'error'` as a retry and excludes tool-use continuations. `SPEC.md` §1.4 was
+  updated with the inference note (provenance, query-time classification,
+  tool-use exclusion, retry-after-tool-use limitation). Tests: `test/llm.test.ts`
+  (retry scenario asserting attempt=1/error then attempt=2/stop on same
+  `turn_id`), `test/db.test.ts` (v5→v6 migration asserts legacy `row.attempt
+  === null`), `test/canned.test.ts` (`retry_count` preset — error→success
+  counts as retry, tool-use continuations excluded). Per-request attribution
+  preserved: the existing interleaved-concurrent test still passes. Full suite
+  239/239 green. Deviation report clean — implementation matches the arch spec
+  and slice doc precisely, no scope widened, no abstraction replaced.
+  The research-recommended `parent_request_id`/`attempt_group_id` shapes were
+  explicitly rejected (arch spec Option B/C); only `attempt` was added.

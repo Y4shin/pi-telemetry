@@ -4,7 +4,7 @@ slug: link-retry-attempts
 title: Add attempt/linkage column + populate from the retry seam or heuristic
 task: ../task.md
 mode: afk
-status: todo
+status: done
 size: m
 blocked_by: []
 ---

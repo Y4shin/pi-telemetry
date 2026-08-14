@@ -1,4 +1,4 @@
-task: retry-parse-hole
+task: retry-linkage
 task_status: done
-slice: parse-retry-after-http-date
+slice: link-retry-attempts
 slice_status: done
