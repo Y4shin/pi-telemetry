@@ -1,9 +1,18 @@
 name: Release
 
-# Tag-triggered publish. Pushing a `vX.Y.Z` tag is the explicit consent to
-# release: a plain merge to main publishes nothing. The tag is checked against
-# package.json before anything reaches the registry, so a mistyped tag fails
-# the job instead of publishing the wrong version.
+# Tag-triggered release. Pushing a `vX.Y.Z` tag is the explicit consent to
+# release: a plain merge to main releases nothing. The tag is checked against
+# package.json before anything reaches the registry.
+#
+# Two jobs, split by privilege:
+#
+#   build  runs the repository's code: install, typecheck, tests, pack. It has
+#          no id-token and cannot publish, so a dependency's install script
+#          reaching into this job finds nothing worth stealing.
+#   stage  never checks out the repository and runs no install scripts. It
+#          downloads the tarball the build job produced, checks that its
+#          package.json agrees with the tag, and stages exactly that file with
+#          `npm stage publish <tarball>`.
 #
 # Auth is npm Trusted Publishing (OIDC): there is no NPM_TOKEN secret anywhere.
 # npm verifies that the request came from this repository's release.yml, so the
@@ -17,14 +26,19 @@ name: Release
 #      with owner `Y4shin`, repository `pi-telemetry`, workflow `release.yml`,
 #      no environment, and both allowed-action boxes left unticked
 #
-# This job STAGES the release; it cannot make a version live. The trusted
+# This workflow STAGES the release; it cannot make a version live. The trusted
 # publisher is registered without the `npm publish` permission, so the only
 # publishing call available to it is `npm stage publish`. A maintainer then
 # approves the staged version with 2FA, which is what puts it on the registry.
-# OIDC supports `npm publish`, `npm stage publish`, and dist-tags, but not
-# `stage approve`, so the approval cannot be automated away here.
 #
-# Local flow (./scripts/release.sh does steps 2 to 5):
+# Workflow integrity: the build job compares .github/workflows/ at the tagged
+# commit with origin/main. A tag that carries a modified pipeline fails here,
+# so a swapped workflow has to land on main first, in the open. This is
+# detection, not a boundary; the file it checks lives in the repository it
+# releases.
+#
+# Local flow (./scripts/release.sh does steps 2 to 5, and refuses any branch
+# but main):
 #   1. accumulate `.changeset/*.md` entries in normal commits
 #   2. `npm run version`        # bumps package.json, writes CHANGELOG.md
 #   3. commit the bump and CHANGELOG.md
@@ -37,30 +51,35 @@ on:
     tags:
       - "v*"
 
-# Least privilege: the job reads the repo, and id-token: write is what makes
-# the OIDC exchange with npm possible. No contents: write, because this
-# workflow creates no tags and pushes no commits.
+# Default deny for the whole workflow; the stage job asks for id-token only.
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Verify and stage
+  build:
+    name: Verify and pack
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      name: ${{ steps.pkg.outputs.name }}
+      version: ${{ steps.pkg.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      # Pinned to the commit behind v4.4.0: a moved tag cannot change what runs.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
-          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: npm ci
@@ -85,34 +104,102 @@ jobs:
           fi
           echo "Staging $name@$version"
 
-      - name: Inspect the tarball
-        run: npm pack --dry-run
+      - name: Check the pipeline is the one main has
+        # A tag can point at any commit, and a push event runs the workflow
+        # found on that commit. Diff the pipeline against main: a tag that
+        # ships a different release.yml fails here instead of staging quietly.
+        run: |
+          set -euo pipefail
+          if ! git rev-parse -q --verify origin/main >/dev/null; then
+            echo "::error::origin/main is not available; cannot check the pipeline"
+            exit 1
+          fi
+          if git diff --quiet origin/main -- .github/workflows/; then
+            echo "The release pipeline matches main."
+          else
+            echo "::error::the tagged commit changes .github/workflows/ and main does not have those changes"
+            git diff --stat origin/main -- .github/workflows/ || true
+            exit 1
+          fi
+
+      - name: Pack the release
+        # npm pack needs the destination directory to exist already.
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+
+      - name: Upload the tarball for the stage job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-tarball
+          path: dist/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  stage:
+    name: Stage for approval
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the OIDC exchange with npm; nothing else needs it
+    env:
+      EXPECTED_NAME: ${{ needs.build.outputs.name }}
+      EXPECTED_VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download the tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-tarball
+          path: dist
+
+      - name: Check the tarball is the release the tag names
+        # The artifact comes from another job, so verify it rather than trust
+        # it: the name and version inside must be the ones the build job
+        # checked against the tag.
+        run: |
+          set -euo pipefail
+          tarball="$(ls dist/*.tgz)"
+          echo "Tarball: $tarball"
+          sha256sum "$tarball"
+          mkdir -p unpacked
+          tar xzf "$tarball" -C unpacked
+          name=$(node -p "require('./unpacked/package/package.json').name")
+          version=$(node -p "require('./unpacked/package/package.json').version")
+          echo "Contents: $name@$version"
+          if [ "$name" != "$EXPECTED_NAME" ] || [ "$version" != "$EXPECTED_VERSION" ]; then
+            echo "::error::the tarball is $name@$version but the tag names $EXPECTED_NAME@$EXPECTED_VERSION"
+            exit 1
+          fi
 
       - name: Stage the release for approval
-        # Staging, not publishing: the trusted publisher has no `npm publish`
-        # permission, and a maintainer's 2FA approval is what makes the version
-        # live. A version already on the registry is not an error, so a re-run
-        # after a partial failure stays safe.
         env:
           NPM_CONFIG_PROVENANCE: "true"
         run: |
           set -euo pipefail
-          spec="${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}"
+          spec="$EXPECTED_NAME@$EXPECTED_VERSION"
           if npm view "$spec" version >/dev/null 2>&1; then
             echo "$spec is already published; nothing to stage."
             exit 0
           fi
-          npm stage publish
+          npm stage publish dist/*.tgz
           {
             echo "### $spec is staged, not live"
             echo
-            echo "Approve it with 2FA to publish:"
+            echo "The staged artifact is the tarball this run packed, sha256sum above."
+            echo "Approve it with 2FA:"
             echo
             echo '```'
-            echo "npm stage list ${{ steps.pkg.outputs.name }}"
+            echo "npm stage list $EXPECTED_NAME"
             echo "npm stage approve <stage-id>"
             echo '```'
             echo
             echo "Or approve it under the Staged Packages tab of"
-            echo "<https://www.npmjs.com/package/${{ steps.pkg.outputs.name }}>."
+            echo "<https://www.npmjs.com/package/$EXPECTED_NAME>."
           } >> "$GITHUB_STEP_SUMMARY"
