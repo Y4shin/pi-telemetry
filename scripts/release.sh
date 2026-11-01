@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
-# Release helper: version bump -> commit -> tag -> push commit -> push tag.
+# Release helper: changeset version -> commit -> tag -> push. CI stages the tag.
 #
 # Usage: ./scripts/release.sh
+#
+# Changesets is the source of truth for the version bump and the changelog
+# entry: each .changeset/<name>.md declares a level (major/minor/patch) and a
+# summary; `changeset version` consumes them, bumps package.json, and writes
+# the entry to the repo-root CHANGELOG.md. This script commits that bump and
+# changelog, tags vX.Y.Z, and pushes commit and tag. The tag triggers
+# .github/workflows/release.yml, which verifies the code and STAGES the
+# version on npm. A maintainer then approves it with 2FA; nothing reaches the
+# registry from this machine.
 #
 # Preconditions:
 #   - No pending or staged changes in the worktree.
 #   - A remote (origin) configured for pushing the commit and tag.
+#   - @changesets/cli installed (run `npm ci` if not).
+#   - At least one pending changeset under .changeset/ (else nothing to release).
 
 set -euo pipefail
 
@@ -15,10 +26,6 @@ cd "$(git rev-parse --show-toplevel)"
 # --------------------------------------------------------------------------
 # 1. Clean-worktree guard (pending/staged changes)
 # --------------------------------------------------------------------------
-# git diff --quiet          -> non-zero if there are unstaged tracked changes
-# git diff --cached --quiet -> non-zero if there are staged changes
-# Untracked files are intentionally ignored so this script itself (if not yet
-# committed) does not block a release.
 if ! { git diff --quiet && git diff --cached --quiet; }; then
   echo "Error: worktree has pending or staged changes. Commit or stash first." >&2
   echo >&2
@@ -27,63 +34,92 @@ if ! { git diff --quiet && git diff --cached --quiet; }; then
 fi
 
 # --------------------------------------------------------------------------
-# 2. Read current version and compute the three bump candidates
+# 2. Guard: @changesets/cli must be installed
 # --------------------------------------------------------------------------
-current_version=$(node -p "require('./package.json').version")
+if ! command -v changeset >/dev/null 2>&1 && ! [ -x node_modules/.bin/changeset ]; then
+  echo "Error: @changesets/cli is not installed. Run \`npm ci\` first." >&2
+  exit 1
+fi
+CHANGESET_BIN="$(command -v changeset >/dev/null 2>&1 && echo changeset || echo "$(pwd)/node_modules/.bin/changeset")"
 
-read -r major_v minor_v patch_v < <(node -e "
-  const [a, b, c] = require('./package.json').version.split('.').map(Number);
-  console.log(\`\${a + 1}.0.0 \${a}.\${b + 1}.0 \${a}.\${b}.\${c + 1}\`);
-")
+# --------------------------------------------------------------------------
+# 3. Guard: at least one pending changeset (else nothing to release)
+# --------------------------------------------------------------------------
+pending_changesets="$(find .changeset -maxdepth 1 -type f -name '*.md' ! -name 'README.md' 2>/dev/null || true)"
+if [ -z "$pending_changesets" ]; then
+  echo "No pending changesets under .changeset/. Nothing to release." >&2
+  exit 0
+fi
 
+current_version="$(node -p "require('./package.json').version")"
 echo "Current version: ${current_version}"
+echo "Pending changesets:"
+echo "$pending_changesets" | sed 's/^/  /'
 echo
 
 # --------------------------------------------------------------------------
-# 3. Offer major / minor / patch
+# 4. Run `changeset version` (consumes the changesets, bumps package.json,
+#    writes the changelog entry)
 # --------------------------------------------------------------------------
-PS3="Select version bump: "
-select choice in "major (${major_v})" "minor (${minor_v})" "patch (${patch_v})"; do
-  case "$choice" in
-    major*) new_version="$major_v"; break ;;
-    minor*) new_version="$minor_v"; break ;;
-    patch*) new_version="$patch_v"; break ;;
-    *) echo "Invalid selection. Please choose 1-3." ;;
-  esac
-done
+"$CHANGESET_BIN" version
+
+new_version="$(node -p "require('./package.json').version")"
+
+if [ "$new_version" = "$current_version" ]; then
+  echo "changeset version did not bump the version (no version-level changesets?). Aborting." >&2
+  exit 1
+fi
+echo
+echo "Bumped ${current_version} -> ${new_version}"
 
 # --------------------------------------------------------------------------
-# 4. Confirm the new version
+# 5. Confirm the changelog moved, and that the tag is free
+# --------------------------------------------------------------------------
+if git diff --quiet -- CHANGELOG.md; then
+  echo "Error: changeset version left CHANGELOG.md unchanged. Aborting." >&2
+  exit 1
+fi
+echo "CHANGELOG.md carries the ${new_version} entry"
+
+if git rev-parse -q --verify "refs/tags/v${new_version}" >/dev/null; then
+  echo "Error: tag v${new_version} already exists. Aborting." >&2
+  exit 1
+fi
+
+# --------------------------------------------------------------------------
+# 6. Confirm before committing/tagging/pushing
 # --------------------------------------------------------------------------
 echo
-echo "Bumping ${current_version} -> ${new_version}"
-read -r -p "Proceed? (y/N) " confirm
+echo "Staged for release v${new_version}:"
+git status --short
+echo
+read -r -p "Proceed with commit, tag v${new_version}, and push to origin? (y/N) " confirm
 if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-  echo "Aborted."
+  echo "Aborted. The version bump and changelog are in the worktree; reset them manually." >&2
   exit 0
 fi
 
 # --------------------------------------------------------------------------
-# 5. Set the new version in package.json
+# 7. Stage, commit, tag
 # --------------------------------------------------------------------------
-# Surgical replacement of the "version" value only, preserving all other
-# formatting (inline arrays, indentation, trailing newline).
-sed -i -E 's/^([[:space:]]*"version"[[:space:]]*:[[:space:]]*")[^"]*(")/\1'"$new_version"'\2/' package.json
-
-# --------------------------------------------------------------------------
-# 6. Stage, commit, tag
-# --------------------------------------------------------------------------
-git add package.json
+git add package.json package-lock.json CHANGELOG.md .changeset
 git commit -q -m "chore(release): releasing v${new_version}"
 git tag "v${new_version}" -m "v${new_version}"
 echo "Tagged v${new_version}"
 
 # --------------------------------------------------------------------------
-# 7. Push the commit, then the tag
+# 8. Push the commit, then the tag
 # --------------------------------------------------------------------------
-branch=$(git rev-parse --abbrev-ref HEAD)
+branch="$(git rev-parse --abbrev-ref HEAD)"
 git push origin "$branch"
 git push origin "v${new_version}"
 
 echo
-echo "Released v${new_version} 🎉"
+echo "Tagged v${new_version} and pushed."
+echo "The release workflow verifies and STAGES ${new_version}; it does not go live."
+echo "  gh run watch \$(gh run list --workflow=release.yml --limit=1 --json databaseId --jq '.[0].databaseId')"
+echo
+echo "Once it is green, approve the staged version with 2FA:"
+echo "  npm stage list $(node -p "require('./package.json').name")"
+echo "  npm stage approve <stage-id>"
+echo "or approve it on the package's Staged Packages tab at npmjs.com."

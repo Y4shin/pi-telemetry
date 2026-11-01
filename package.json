@@ -1,11 +1,29 @@
 {
-  "name": "pi-telemetry",
+  "name": "@y4shin/pi-telemetry",
   "version": "0.4.1",
   "type": "module",
   "description": "Local-first observability extension for Pi",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Y4shin/pi-telemetry.git"
+  },
+  "homepage": "https://github.com/Y4shin/pi-telemetry",
+  "files": [
+    "index.ts",
+    "src",
+    "skills"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
-    "extensions": ["./index.ts"],
+    "extensions": [
+      "./index.ts"
+    ],
     "skills": [
       "./skills/telemetry-eval-setup",
       "./skills/telemetry-eval-analyze"
@@ -17,6 +35,7 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@earendil-works/pi-ai": "^0.80.10",
     "@earendil-works/pi-coding-agent": "^0.80.0",
     "@types/node": "^26.1.2",
@@ -25,6 +44,8 @@
   },
   "scripts": {
     "test": "node --test 'test/**/*.test.ts'",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "changeset": "changeset",
+    "version": "changeset version"
   }
 }
