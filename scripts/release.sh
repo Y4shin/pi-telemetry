@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Release helper: changeset version -> commit -> tag -> push. CI stages the tag.
 #
-# Usage: ./scripts/release.sh
+# Usage: ./scripts/release.sh [--yes]
+#
+#   --yes  skip the confirmation prompt (for a non-interactive run)
 #
 # Changesets is the source of truth for the version bump and the changelog
 # entry: each .changeset/<name>.md declares a level (major/minor/patch) and a
@@ -22,6 +24,14 @@ set -euo pipefail
 
 # Always operate from the repository root, regardless of cwd.
 cd "$(git rev-parse --show-toplevel)"
+
+# --yes skips the prompt. Without it, the script asks before it commits.
+assume_yes=0
+case "${1:-}" in
+  -y|--yes) assume_yes=1 ;;
+  "") ;;
+  *) echo "Error: unknown argument '${1}'. Usage: $0 [--yes]" >&2; exit 2 ;;
+esac
 
 # --------------------------------------------------------------------------
 # 1. Clean-worktree guard (pending/staged changes)
@@ -65,7 +75,7 @@ echo
 
 # changesets bumps package.json but leaves the lockfile's own root version
 # stale, which `npm ci` then reports as a mismatch at release time.
-npm install --package-lock-only --ignore-scripts >/dev/null 2>&1
+npm install --package-lock-only --ignore-scripts < /dev/null >/dev/null 2>&1
 
 new_version="$(node -p "require('./package.json').version")"
 
@@ -100,10 +110,14 @@ echo
 echo "Staged for release v${new_version}:"
 git status --short
 echo
-read -r -p "Proceed with commit, tag v${new_version}, and push to origin? (y/N) " confirm
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-  echo "Aborted. The version bump and changelog are in the worktree; reset them manually." >&2
-  exit 0
+if [ "$assume_yes" -eq 1 ]; then
+  echo "Proceeding without a prompt (--yes)."
+else
+  read -r -p "Proceed with commit, tag v${new_version}, and push to origin? (y/N) " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo "Aborted. The version bump and changelog are in the worktree; reset them manually." >&2
+    exit 0
+  fi
 fi
 
 # --------------------------------------------------------------------------
