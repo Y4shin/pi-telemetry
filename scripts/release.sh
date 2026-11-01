@@ -34,8 +34,29 @@ case "${1:-}" in
 esac
 
 # --------------------------------------------------------------------------
-# 1. Clean-worktree guard (pending/staged changes)
+# 1. Preconditions: the release branch, and a clean worktree
 # --------------------------------------------------------------------------
+# The tag is cut from the branch that is checked out, so releasing from a
+# feature branch tags a commit that main does not have.
+release_branch="main"
+current_branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$current_branch" != "$release_branch" ]; then
+  echo "Error: releases are cut from ${release_branch}, and this is '${current_branch}'." >&2
+  echo "Merge this work into ${release_branch}, then run the release there." >&2
+  exit 1
+fi
+
+# Behind the remote is a real problem: the tag would miss commits that origin
+# already has. Ahead is normal, because the release commit is local.
+if git rev-parse -q --verify "refs/remotes/origin/${release_branch}" >/dev/null; then
+  behind="$(git rev-list --count "HEAD..origin/${release_branch}")"
+  if [ "${behind}" -gt 0 ]; then
+    echo "Error: ${release_branch} is ${behind} commit(s) behind origin/${release_branch}." >&2
+    echo "Pull or merge first, then run the release." >&2
+    exit 1
+  fi
+fi
+
 if ! { git diff --quiet && git diff --cached --quiet; }; then
   echo "Error: worktree has pending or staged changes. Commit or stash first." >&2
   echo >&2
@@ -131,8 +152,7 @@ echo "Tagged v${new_version}"
 # --------------------------------------------------------------------------
 # 8. Push the commit, then the tag
 # --------------------------------------------------------------------------
-branch="$(git rev-parse --abbrev-ref HEAD)"
-git push origin "$branch"
+git push origin "$release_branch"
 git push origin "v${new_version}"
 
 echo
