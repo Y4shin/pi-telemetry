@@ -75,11 +75,14 @@ echo "Bumped ${current_version} -> ${new_version}"
 # --------------------------------------------------------------------------
 # 5. Confirm the changelog moved, and that the tag is free
 # --------------------------------------------------------------------------
-if git diff --quiet -- CHANGELOG.md; then
-  echo "Error: changeset version left CHANGELOG.md unchanged. Aborting." >&2
+# Content, not `git diff`: the first release creates CHANGELOG.md as an
+# untracked file, which `git diff` reports as no change at all.
+if [ -f CHANGELOG.md ] && grep -qF "## ${new_version}" CHANGELOG.md; then
+  echo "CHANGELOG.md carries the ${new_version} entry"
+else
+  echo "Error: CHANGELOG.md has no ${new_version} section. Aborting." >&2
   exit 1
 fi
-echo "CHANGELOG.md carries the ${new_version} entry"
 
 if git rev-parse -q --verify "refs/tags/v${new_version}" >/dev/null; then
   echo "Error: tag v${new_version} already exists. Aborting." >&2
