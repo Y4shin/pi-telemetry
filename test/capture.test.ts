@@ -237,7 +237,7 @@ describe("run capture", () => {
     await setupSession(stub, t);
     registerRunCapture(stub.pi, t);
 
-    await stub.fire("before_agent_start", {
+    await stub.fire("before_agent_start", { messageType: "user",
       prompt: "hello",
       systemPrompt: "be helpful",
     });
@@ -252,13 +252,35 @@ describe("run capture", () => {
     assert.strictEqual(row.outcome, null);
   });
 
+  it("a custom-message run stages no prompt characters", async () => {
+    const stub = createL1Stub();
+    const t = createBuffer(makeConfig(dbPath), db);
+    await setupSession(stub, t);
+    registerRunCapture(stub.pi, t);
+
+    // pi.sendMessage(..., { triggerTurn: true }) starts a run with no user
+    // prompt: the event carries the custom message instead.
+    await stub.fire("before_agent_start", {
+      messageType: "custom",
+      message: { customType: "note", content: "ignored", display: false },
+      systemPrompt: "be helpful",
+    });
+    await stub.fire("agent_start", {});
+    t.flush();
+
+    const row = db.prepare("SELECT * FROM agent_runs WHERE session_id = ?").get("sess-run") as Record<string, unknown>;
+    assert.ok(row, "agent_runs row should exist");
+    assert.strictEqual(row.prompt_chars, 0);
+    assert.strictEqual(row.system_prompt_chars, 10);
+  });
+
   it("agent_end and agent_settled produce distinct outcomes", async () => {
     const stub = createL1Stub();
     const t = createBuffer(makeConfig(dbPath), db);
     await setupSession(stub, t);
     registerRunCapture(stub.pi, t);
 
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     await stub.fire("agent_end", { messages: [{}, {}, {}] });
     t.flush();
@@ -301,7 +323,7 @@ describe("turn capture", () => {
       sessionManager: { getSessionId: () => "sess-turn" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
   }
 

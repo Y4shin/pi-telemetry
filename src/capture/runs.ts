@@ -15,7 +15,9 @@ const RUN_START_PREFIX = "run:";
 export function registerRunCapture(pi: ExtensionAPI, t: Telemetry): void {
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, _ctx: ExtensionContext) => {
     guard(t, () => {
-      t.state.stagedPromptChars = event.prompt.length;
+      // The event is a union of a user-started run and an idle custom-message
+      // run; only the user event carries the prompt that was submitted.
+      t.state.stagedPromptChars = event.messageType === "user" ? event.prompt.length : 0;
       t.state.stagedSystemPromptChars = event.systemPrompt.length;
     });
   });

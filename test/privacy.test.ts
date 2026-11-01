@@ -121,7 +121,7 @@ describe("privacy gate", () => {
         hasUI: false,
         sessionManager: session.sessionManager,
         isProjectTrusted: () => true,
-      } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext,
+      } as unknown as import("@earendil-works/pi-coding-agent").ExtensionToolContext,
     );
 
     await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });

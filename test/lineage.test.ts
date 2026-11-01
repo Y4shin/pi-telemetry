@@ -101,7 +101,7 @@ describe("lineage foundation", () => {
     registerLineage(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-spawn-1"));
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     const runId = t.state.runId;
     assert.ok(runId);
@@ -132,7 +132,7 @@ describe("lineage foundation", () => {
     registerLineage(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-complete-1"));
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     const runId = t.state.runId;
     assert.ok(runId);
@@ -162,7 +162,7 @@ describe("lineage foundation", () => {
     registerLineage(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-unknown-1"));
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     t.flush();
 
@@ -191,7 +191,7 @@ describe("lineage foundation", () => {
     registerLineage(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-bad-1"));
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     t.flush();
 
@@ -218,7 +218,7 @@ describe("lineage foundation", () => {
     registerLineage(stub.pi, t);
 
     await stub.fire("session_start", { reason: "startup" }, ctxWithSession("sess-export"));
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     t.flush();
 
@@ -251,7 +251,7 @@ describe("lineage foundation", () => {
     registerLineage(stub.pi, t);
 
     await stub.fire("session_start", { reason: "fork" }, ctxWithSession("sess-export-depth"));
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     t.flush();
 

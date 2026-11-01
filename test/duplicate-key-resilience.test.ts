@@ -43,7 +43,7 @@ async function setupSessionRunTurn(
     sessionManager: { getSessionId: () => sessionId } as ExtensionContext["sessionManager"],
     cwd: "/tmp/proj",
   });
-  await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+  await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
   await stub.fire("agent_start", {});
   await stub.fire("turn_start", { turnIndex: 0, timestamp: 5000 }, {
     getContextUsage: () => ({ tokens: 0, contextWindow: 100000, percent: 0 }),
@@ -245,7 +245,7 @@ describe("duplicate key resilience", () => {
       sessionManager: { getSessionId: () => "sess-mock" } as ExtensionContext["sessionManager"],
       cwd: "/tmp/proj",
     });
-    await stub.fire("before_agent_start", { prompt: "x", systemPrompt: "y" });
+    await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});
     await stub.fire("turn_start", { turnIndex: 0, timestamp: 1000 }, {
       getContextUsage: () => ({ tokens: 0, contextWindow: 100000, percent: 0 }),

@@ -36,16 +36,19 @@
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
-    "@earendil-works/pi-ai": "^0.80.10",
-    "@earendil-works/pi-coding-agent": "^0.80.0",
-    "@types/node": "^26.1.2",
-    "typebox": "1.1.38",
-    "typescript": "^5.7.0"
+    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@types/node": "^26.6.6",
+    "typebox": "^1.4.3",
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "test": "node --test 'test/**/*.test.ts'",
     "check": "tsc --noEmit",
     "changeset": "changeset",
     "version": "changeset version"
+  },
+  "overrides": {
+    "undici": "^8.12.3"
   }
 }
