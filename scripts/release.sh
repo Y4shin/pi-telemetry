@@ -63,6 +63,10 @@ echo
 # --------------------------------------------------------------------------
 "$CHANGESET_BIN" version
 
+# changesets bumps package.json but leaves the lockfile's own root version
+# stale, which `npm ci` then reports as a mismatch at release time.
+npm install --package-lock-only --ignore-scripts >/dev/null 2>&1
+
 new_version="$(node -p "require('./package.json').version")"
 
 if [ "$new_version" = "$current_version" ]; then
