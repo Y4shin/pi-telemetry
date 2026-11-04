@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../../src/db.ts";
+import { FIXTURE_CHILD_SESSION_CWD, FIXTURE_ROOT_SESSION_CWD } from "./fixture-paths.ts";
 
 export interface FixtureOptions {
   now?: number;
@@ -18,7 +19,7 @@ export function seedFixture(dbPath: string, options: FixtureOptions = {}): Datab
       agent_label: "root",
       depth: 0,
       name: "Root Session",
-      cwd: "/tmp/root",
+      cwd: FIXTURE_ROOT_SESSION_CWD,
       pi_version: "0.80.10",
       ext_version: "0.1.0",
       start_reason: "startup",
@@ -33,7 +34,7 @@ export function seedFixture(dbPath: string, options: FixtureOptions = {}): Datab
       agent_label: "child",
       depth: 1,
       name: "Child Session",
-      cwd: "/tmp/child",
+      cwd: FIXTURE_CHILD_SESSION_CWD,
       pi_version: "0.80.10",
       ext_version: "0.1.0",
       start_reason: "new",

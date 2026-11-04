@@ -10,6 +10,7 @@ import type { TelemetryConfig } from "../src/config.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
+import { FIXTURE_CWD } from "./helpers/fixture-paths.ts";
 import {
   registerSessionCapture,
   registerRunCapture,
@@ -78,7 +79,7 @@ describe("llm request capture", () => {
     registerTurnCapture(stub.pi, t);
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-llm" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});

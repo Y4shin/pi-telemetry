@@ -10,6 +10,7 @@ import { registerSkillCapture, resetSkillVersionCache, resetSkillInvocations } f
 import { sha256, textLength } from "../../src/hash.ts";
 import type { TelemetryConfig } from "../../src/config.ts";
 import { createL1Stub } from "../helpers/l1-stub.ts";
+import { FIXTURE_CWD } from "../helpers/fixture-paths.ts";
 import type { InputEvent, ExtensionContext, ExtensionAPI, SlashCommandInfo, TurnStartEvent } from "@earendil-works/pi-coding-agent";
 
 function makeConfig(dbPath: string): TelemetryConfig {
@@ -51,7 +52,7 @@ describe("registerSkillCapture input handler", () => {
     registerSkillCapture(stub.pi, t);
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => sessionId } as unknown as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     t.state.sessionId = sessionId;
     t.flush();
@@ -525,7 +526,7 @@ describe("registerSkillCapture input handler", () => {
       t.flush();
 
       writePackageJson(pkgDir, { name: "task-workflow", version: "3.0.0" });
-      await stub.fire("resources_discover", { type: "resources_discover", cwd: "/tmp/proj", reason: "reload" });
+      await stub.fire("resources_discover", { type: "resources_discover", cwd: FIXTURE_CWD, reason: "reload" });
 
       await stub.fire("input", inputEvent("/skill:foo second", "interactive"));
       t.flush();
@@ -881,7 +882,7 @@ describe("registerSkillCapture input handler", () => {
         skillPath,
         "---\nmetadata:\n  telemetry:\n    capture: target,map\n---\n# foo\n",
       );
-      await stub.fire("resources_discover", { type: "resources_discover", cwd: "/tmp/proj", reason: "reload" });
+      await stub.fire("resources_discover", { type: "resources_discover", cwd: FIXTURE_CWD, reason: "reload" });
 
       await stub.fire("input", inputEvent("/skill:foo beta gamma", "interactive"));
       t.flush();

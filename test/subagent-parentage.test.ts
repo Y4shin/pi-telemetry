@@ -17,6 +17,7 @@ import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
+import { FIXTURE_CWD } from "./helpers/fixture-paths.ts";
 import { registerSessionCapture } from "../src/capture/index.ts";
 
 function makeConfig(dbPath: string): TelemetryConfig {
@@ -76,7 +77,7 @@ describe("REPRO: subagent parentage from PI_SUBAGENT_* env vars", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "child-session-789" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     t.flush();
 
@@ -104,7 +105,7 @@ describe("REPRO: subagent parentage from PI_SUBAGENT_* env vars", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "root-session-000" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     t.flush();
 
@@ -131,7 +132,7 @@ describe("REPRO: subagent parentage from PI_SUBAGENT_* env vars", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "child-session-def" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     t.flush();
 

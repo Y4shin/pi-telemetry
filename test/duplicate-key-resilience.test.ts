@@ -9,6 +9,7 @@ import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
+import { FIXTURE_CWD, FIXTURE_TOOL_PATH, FIXTURE_TOOL_PATH_ALT } from "./helpers/fixture-paths.ts";
 import {
   registerSessionCapture,
   registerRunCapture,
@@ -41,7 +42,7 @@ async function setupSessionRunTurn(
   registerTurnCapture(stub.pi, t);
   await stub.fire("session_start", { reason: "startup" }, {
     sessionManager: { getSessionId: () => sessionId } as ExtensionContext["sessionManager"],
-    cwd: "/tmp/proj",
+    cwd: FIXTURE_CWD,
   });
   await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
   await stub.fire("agent_start", {});
@@ -91,7 +92,7 @@ describe("duplicate key resilience", () => {
     await stub.fire("tool_execution_start", {
       toolCallId: "tc-replayed",
       toolName: "read",
-      args: { path: "/tmp/foo" },
+      args: { path: FIXTURE_TOOL_PATH },
     });
     await stub.fire("tool_execution_end", {
       toolCallId: "tc-replayed",
@@ -104,7 +105,7 @@ describe("duplicate key resilience", () => {
     await stub.fire("tool_execution_start", {
       toolCallId: "tc-new",
       toolName: "read",
-      args: { path: "/tmp/bar" },
+      args: { path: FIXTURE_TOOL_PATH_ALT },
     });
     await stub.fire("tool_execution_end", {
       toolCallId: "tc-new",
@@ -191,7 +192,7 @@ describe("duplicate key resilience", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-replay" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     t.flush();
 
@@ -243,7 +244,7 @@ describe("duplicate key resilience", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-mock" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});

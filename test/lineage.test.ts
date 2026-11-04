@@ -9,6 +9,7 @@ import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
+import { FIXTURE_CWD } from "./helpers/fixture-paths.ts";
 import { registerSessionCapture, registerRunCapture } from "../src/capture/index.ts";
 import { registerLineage } from "../src/lineage.ts";
 
@@ -26,7 +27,7 @@ function makeConfig(dbPath: string): TelemetryConfig {
 function ctxWithSession(sessionId: string): Partial<ExtensionContext> {
   return {
     sessionManager: { getSessionId: () => sessionId } as ExtensionContext["sessionManager"],
-    cwd: "/tmp/proj",
+    cwd: FIXTURE_CWD,
   };
 }
 

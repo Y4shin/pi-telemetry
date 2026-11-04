@@ -12,8 +12,13 @@ Tests use Node.js built-ins only:
 
 ```bash
 npm run check   # tsc --noEmit
-npm test        # node --test 'test/**/*.test.ts'
+npm test        # node --test "test/**/*.test.ts"
 ```
+
+The `test` script uses double quotes around the glob on purpose: `cmd.exe`
+treats single quotes as ordinary characters, so a single-quoted pattern would
+reach Node with the quotes attached and match nothing. `npm test` is therefore
+the portable entry point on Linux, macOS and Windows alike.
 
 Single-file runs work for fast iteration:
 
@@ -24,6 +29,41 @@ node --test test/buffer.test.ts
 node --test test/l1-harness.test.ts
 node --test test/l2-harness.test.ts
 ```
+
+## Platform-neutral fixtures
+
+Never hardcode a POSIX absolute path in a fixture. `resolve()` of one on Windows
+produces a drive-rooted path, so a stored value no longer equals the literal the
+test wrote. Import the constants from `test/helpers/fixture-paths.ts`, which are
+built with `join(tmpdir(), …)`:
+
+```ts
+import { FIXTURE_CWD, FIXTURE_TOOL_PATH } from "./helpers/fixture-paths.ts";
+```
+
+Assertions on derived values must be derived too. A JSON length, for example,
+is `JSON.stringify({ path: FIXTURE_TOOL_PATH }).length`, not a literal count:
+Windows separators are escaped in JSON and change the length.
+
+### OS-gated and guard tests
+
+Two shapes cover platform behaviour that a single Linux run cannot reach:
+
+- **OS-gated assertions**, `test/config.test.ts`:
+  `describe("config on Windows", { skip: process.platform === "win32" ? false : "<reason>" }, …)`
+  and the mirror `describe("config on POSIX", …)`. Each block asserts the
+  shape of the resolved path on its own host (absolute, native separators,
+  byte-identical POSIX string). Both are skipped locally except on the matching
+  OS; the CI matrix supplies one host each. Gate assertions about the
+  environment this way, and keep the logic itself in cross-platform tests.
+- **Guard tests**, `test/platform.test.ts`: they read repository files instead
+  of calling code, and cover what no unit test can reach. Shipped-skill rule:
+  every `.venv/bin/` command needs a `.venv\Scripts` form in the same section,
+  and `LD_LIBRARY_PATH` advice must sit under a Linux/NixOS heading. Packaging:
+  the `test` glob stays double-quoted and `engines.node` stays `>=24`. CI: the
+  matrix still lists `windows-latest` and `ubuntu-latest`. After editing
+  `skills/*/SKILL.md`, `package.json` or `.github/workflows/ci.yml`, run
+  `node --test test/platform.test.ts`.
 
 ## Mock conventions
 
@@ -141,7 +181,8 @@ NOT part of the npm CI — verified manually.
   `src/db.ts`).
 - Acceptance: `~/.pi/telemetry-eval/scripts/smoke_test.py` exits 0; the example
   `example_cost_by_model.py` returns a non-empty DataFrame. Run with
-  `cd ~/.pi/telemetry-eval && [LD_LIBRARY_PATH=...] uv run python scripts/x.py`.
+  `uv run python scripts/x.py` from `~/.pi/telemetry-eval`; on NixOS only,
+  prefix `LD_LIBRARY_PATH=...` as the setup skill describes.
 
 ### Skill invocation capture (`src/capture/skills.ts`, landed task
 `swt-skill-invoke-capture`)

@@ -9,6 +9,7 @@ import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
+import { FIXTURE_CWD, FIXTURE_TOOL_PATH } from "./helpers/fixture-paths.ts";
 import {
   registerSessionCapture,
   registerRunCapture,
@@ -35,7 +36,7 @@ async function setupSessionRunTurn(stub: ReturnType<typeof createL1Stub>, t: Ret
   registerTurnCapture(stub.pi, t);
   await stub.fire("session_start", { reason: "startup" }, {
     sessionManager: { getSessionId: () => sessionId } as ExtensionContext["sessionManager"],
-    cwd: "/tmp/proj",
+    cwd: FIXTURE_CWD,
   });
   await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
   await stub.fire("agent_start", {});
@@ -72,7 +73,7 @@ describe("tool execution capture", () => {
     await stub.fire("tool_execution_start", {
       toolCallId: "tc-1",
       toolName: "read",
-      args: { path: "/tmp/foo" },
+      args: { path: FIXTURE_TOOL_PATH },
     });
     clock += 50;
     await stub.fire("tool_execution_end", {
@@ -94,7 +95,7 @@ describe("tool execution capture", () => {
     assert.strictEqual(row.duration_ms, 50);
     assert.strictEqual(row.is_error, 0);
     assert.strictEqual(row.error_class, null);
-    assert.strictEqual(row.args_chars, 19); // {"path":"/tmp/foo"}
+    assert.strictEqual(row.args_chars, JSON.stringify({ path: FIXTURE_TOOL_PATH }).length);
     assert.strictEqual(row.result_chars, 18); // {"output":"hello"}
     assert.strictEqual(row.result_hash, "639909023015218900ef28cc942c51401cd9108e7179f4d1f5826985c7233ccc");
     assert.strictEqual(row.args_json, null);
@@ -167,7 +168,7 @@ describe("tool execution capture", () => {
     await stub.fire("tool_execution_start", {
       toolCallId: "tc-content",
       toolName: "read",
-      args: { path: "/tmp/foo" },
+      args: { path: FIXTURE_TOOL_PATH },
     });
     await stub.fire("tool_execution_end", {
       toolCallId: "tc-content",
@@ -179,7 +180,7 @@ describe("tool execution capture", () => {
 
     const row = db.prepare("SELECT * FROM tool_executions WHERE tool_call_id = ?").get("tc-content") as Record<string, unknown>;
     assert.ok(row);
-    assert.strictEqual(row.args_json, JSON.stringify({ path: "/tmp/foo" }));
+    assert.strictEqual(row.args_json, JSON.stringify({ path: FIXTURE_TOOL_PATH }));
     assert.strictEqual(row.result_text, "file body");
   });
 

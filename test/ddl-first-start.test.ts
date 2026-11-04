@@ -51,9 +51,10 @@ async function spawnDdlWorkers(dbPath: string): Promise<WorkerResult[]> {
         } else if (m.type === "error") {
           results[i] = { code: 1, signal: null, error: m.detail };
           resolve();
-        } else if (m.type === "done") {
-          resolve();
         }
+        // "done" is not a completion signal: the worker still has to exit, and
+        // only the exit event carries the code the assertion checks. Resolving
+        // here would let the assertion run before `results[i]` is written.
       });
 
       child.on("error", (err) => {

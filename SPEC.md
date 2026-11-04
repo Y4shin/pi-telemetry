@@ -498,7 +498,7 @@ under `pi-telemetry`, env-var overrides:
 | Key | Default | Notes |
 |---|---|---|
 | `enabled` | true | |
-| `dbPath` | `~/.pi/telemetry.db` | must be a local filesystem (no NFS); change for per-project/per-profile isolation — the shared default is deliberate |
+| `dbPath` | `~/.pi/telemetry.db` | must be a local filesystem (no NFS); change for per-project/per-profile isolation — the shared default is deliberate. A leading `~/` or `~\` expands against the user's home directory; `%USERPROFILE%` and `$HOME` are taken literally |
 | `bufferFlushMs` | 2000 | |
 | `bufferMaxRows` | 50 | |
 | `feedbackMaxBytes` | 65536 | |

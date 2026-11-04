@@ -11,6 +11,7 @@ import { getPiVersion } from "../src/version.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
+import { FIXTURE_CWD, FIXTURE_OTHER_CWD } from "./helpers/fixture-paths.ts";
 import {
   registerSessionCapture,
   registerRunCapture,
@@ -20,7 +21,7 @@ import {
 function ctxWithSession(sessionId: string): Partial<ExtensionContext> {
   return {
     sessionManager: { getSessionId: () => sessionId } as ExtensionContext["sessionManager"],
-    cwd: "/tmp/proj",
+    cwd: FIXTURE_CWD,
   };
 }
 
@@ -107,7 +108,7 @@ describe("session capture", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-1" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     t.flush();
 
@@ -115,7 +116,7 @@ describe("session capture", () => {
     assert.ok(row, "sessions row should exist");
     assert.strictEqual(row.session_id, "sess-1");
     assert.strictEqual(row.start_reason, "startup");
-    assert.strictEqual(row.cwd, "/tmp/proj");
+    assert.strictEqual(row.cwd, FIXTURE_CWD);
     assert.strictEqual(row.ended_unix_ms, null);
     assert.strictEqual(row.parent_session_id, null);
     assert.strictEqual(row.parent_run_id, null);
@@ -132,7 +133,7 @@ describe("session capture", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-2" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     await stub.fire("session_shutdown", { reason: "quit" });
     t.flush();
@@ -150,7 +151,7 @@ describe("session capture", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-3" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     await stub.fire("session_info_changed", { name: "renamed" });
     t.flush();
@@ -167,7 +168,7 @@ describe("session capture", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-4" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     t.flush();
 
@@ -184,13 +185,13 @@ describe("session capture", () => {
 
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-resume" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     clock += 5000;
     await assert.doesNotReject(async () => {
       await stub.fire("session_start", { reason: "resume" }, {
         sessionManager: { getSessionId: () => "sess-resume" } as ExtensionContext["sessionManager"],
-        cwd: "/tmp/other",
+        cwd: FIXTURE_OTHER_CWD,
       });
     });
     t.flush();
@@ -199,7 +200,7 @@ describe("session capture", () => {
     assert.ok(row);
     assert.strictEqual(row.start_reason, "startup");
     assert.strictEqual(row.started_unix_ms, 1000);
-    assert.strictEqual(row.cwd, "/tmp/proj");
+    assert.strictEqual(row.cwd, FIXTURE_CWD);
     const metaCount = db.prepare("SELECT COUNT(*) AS c FROM telemetry_meta WHERE session_id = ? AND event = ?").get("sess-resume", "write_failed") as { c: number };
     assert.strictEqual(metaCount.c, 0);
   });
@@ -227,7 +228,7 @@ describe("run capture", () => {
     registerSessionCapture(stub.pi, t);
     return stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-run" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
   }
 
@@ -321,7 +322,7 @@ describe("turn capture", () => {
     registerRunCapture(stub.pi, t);
     await stub.fire("session_start", { reason: "startup" }, {
       sessionManager: { getSessionId: () => "sess-turn" } as ExtensionContext["sessionManager"],
-      cwd: "/tmp/proj",
+      cwd: FIXTURE_CWD,
     });
     await stub.fire("before_agent_start", { messageType: "user", prompt: "x", systemPrompt: "y" });
     await stub.fire("agent_start", {});

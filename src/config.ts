@@ -37,8 +37,18 @@ const DEFAULTS: TelemetryConfig = {
   },
 };
 
+const HOME_PREFIXES = ["~/", "~\\"] as const;
+
+/**
+ * Expand a leading `~/` or `~\` to the user's home directory. Any other value
+ * is returned unchanged: `%USERPROFILE%` and `$HOME` arrive verbatim from
+ * settings files and different shells expand them differently, so expanding
+ * them here would make the same config mean different things per platform.
+ */
 function expandPath(p: string): string {
-  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+  for (const prefix of HOME_PREFIXES) {
+    if (p.startsWith(prefix)) return join(homedir(), p.slice(prefix.length));
+  }
   return p;
 }
 

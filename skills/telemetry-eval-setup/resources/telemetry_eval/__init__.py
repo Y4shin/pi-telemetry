@@ -13,8 +13,14 @@ __all__ = ["resolve_db_path", "connect", "duck", "scratch"]
 
 
 def _expand_path(path: str) -> str:
-    """Expand a leading ``~/`` to the user's home directory."""
-    if path.startswith("~/"):
+    r"""Expand a leading ``~/`` or ``~\`` to the user's home directory.
+
+    Mirrors ``expandPath`` in ``src/config.ts``: only the two explicit home
+    prefixes expand. ``%USERPROFILE%`` and ``$HOME`` are left verbatim, because
+    they arrive as text from a settings file and the shell that wrote them is
+    unknown.
+    """
+    if path.startswith(("~/", "~\\")):
         return os.path.join(os.path.expanduser("~"), path[2:])
     return path
 

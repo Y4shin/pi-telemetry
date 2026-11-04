@@ -9,6 +9,12 @@ Analyze the pi-telemetry SQLite database at `~/.pi/telemetry.db` with
 read-only Python scripts. Use the shared `telemetry_eval` helpers for all
 database access and follow the schema primer for table relationships.
 
+Linux, macOS and Windows are supported. Commands starting with `uv` are
+identical on every platform; venv interpreter paths are written per platform
+(`.venv/bin/python` on Linux/macOS, `.venv\Scripts\python.exe` on Windows).
+In `cmd.exe`, use `cd %USERPROFILE%\.pi\telemetry-eval`, because `cmd.exe` does
+not expand `~`.
+
 ## Preflight
 
 Before writing or running any eval, confirm the analysis project exists:
@@ -61,21 +67,38 @@ follow resource "resources/schema.md"
 
 - Long-held named evals go in `~/.pi/telemetry-eval/scripts/<name>.py`.
 - One-offs can be ad-hoc files at the project root or inline via
-  `uv run python -c "..."` (or `.venv/bin/python -c "..."` when `uv` is
-  unavailable).
-- Run named scripts from the project root:
+  `uv run python -c "..."`, which works on every platform. Without `uv`, use
+  `.venv/bin/python -c "..."` on Linux/macOS and
+  `.venv\Scripts\python.exe -c "..."` on Windows.
+- Run named scripts from the project root. With `uv`:
 
   ```bash
   cd ~/.pi/telemetry-eval
   uv run python scripts/<name>.py
   ```
 
-## NixOS note
+  Without `uv`, Linux / macOS:
 
-On NixOS, compiled wheels (numpy, pandas, duckdb) may fail to load shared
+  ```bash
+  cd ~/.pi/telemetry-eval
+  .venv/bin/python scripts/<name>.py
+  ```
+
+  Without `uv`, Windows:
+
+  ```
+  cd %USERPROFILE%\.pi\telemetry-eval
+  .venv\Scripts\python.exe scripts\<name>.py
+  ```
+
+## NixOS note (Linux only)
+
+On NixOS only, compiled wheels (numpy, pandas, duckdb) may fail to load shared
 libraries unless the nix-ld compatibility directory is on
 `LD_LIBRARY_PATH`. If imports or script runs fail with missing
-`libstdc++.so.6`/`libz.so.1`/similar, set it before running:
+`libstdc++.so.6`/`libz.so.1`/similar, set it before running. On macOS and
+Windows the dynamic loader resolves these libraries itself, so there is
+nothing to set:
 
 ```bash
 export LD_LIBRARY_PATH="${NIX_LD_LIBRARY_PATH:-/run/current-system/sw/share/nix-ld/lib}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

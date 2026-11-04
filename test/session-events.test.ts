@@ -9,6 +9,7 @@ import { createBuffer } from "../src/buffer.ts";
 import type { TelemetryConfig } from "../src/config.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createL1Stub } from "./helpers/l1-stub.ts";
+import { FIXTURE_CWD } from "./helpers/fixture-paths.ts";
 import { registerSessionCapture } from "../src/capture/index.ts";
 import { registerSessionEventsCapture } from "../src/capture/session-events.ts";
 
@@ -27,7 +28,7 @@ async function setupSession(stub: ReturnType<typeof createL1Stub>, t: ReturnType
   registerSessionCapture(stub.pi, t);
   await stub.fire("session_start", { reason: "startup" }, {
     sessionManager: { getSessionId: () => "sess-events" } as ExtensionContext["sessionManager"],
-    cwd: "/tmp/proj",
+    cwd: FIXTURE_CWD,
   });
 }
 
