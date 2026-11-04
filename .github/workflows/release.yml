@@ -188,7 +188,9 @@ jobs:
             echo "$spec is already published; nothing to stage."
             exit 0
           fi
-          npm stage publish dist/*.tgz
+          # `./` is required: npm parses a bare relative path that contains a
+          # slash as a GitHub shorthand (dist/x.tgz -> github:dist/x.tgz).
+          npm stage publish ./dist/*.tgz
           {
             echo "### $spec is staged, not live"
             echo
